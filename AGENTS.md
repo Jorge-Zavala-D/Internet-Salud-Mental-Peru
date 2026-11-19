@@ -25,6 +25,8 @@ Aurelia Olivas Arrieta and Jorge Zavala own the empirical and publication decisi
 
 ## Evidence and decisions
 
+Econthaki is a causal impact evaluation. Tie each proposed contribution to the policy contrast and effect the design can identify. Before estimating, document the assignment process, comparison group, identifying assumptions, outcome and timing support, and design-specific precision. Use implementation evidence and descriptive diagnostics to choose or refine the causal design.
+
 The research question concerns operational public broadband and depressive symptoms among rural residents aged 15–29. Record roster designation, regional operations, institutional acceptance, observed delivery, household access, and use as distinct facts. Preserve the date and source of the seven-wave historical pilot. Label every new run separately. Make timing precision, denominators, and unresolved conflicts explicit. A setup test establishes execution readiness. The coauthors decide the exposure, comparison group, estimand, and publication scope.
 
 ## Writing, presentations, and release
