@@ -1,0 +1,25 @@
+# Merge with the repository's existing .gitignore, if any.
+.local/
+*.dta
+*.sav
+*.dct
+*.smcl
+*.log
+*.gph
+*.bib.bak
+*.synctex.gz
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.nav
+*.out
+*.run.xml
+*.snm
+*.toc
+/paper.pdf
+/slides-*.pdf
+# Preserve final approved figure PDFs in 2 Output/Figures and intentional public TeX assets.
+# CSVs can contain microdata. Put originals in Dropbox and stage only reviewed aggregate CSVs.
