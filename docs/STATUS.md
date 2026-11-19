@@ -4,7 +4,7 @@ Record shareable summaries here at each handoff. Keep personal paths, unpublishe
 
 ## 19 November 2026 — Current coordination checkpoint
 
-**Research direction** — Econthaki will be a causal impact evaluation. The coauthors will choose the treatment contrast, target population, comparison, and estimand after auditing service delivery and ENDES support. Frame the contribution around the effect the chosen design identifies. The facility chronology and descriptive checks supply evidence for design selection. If the current contrast lacks credible identifying variation or adequate precision, revisit exposure, comparison, or data before estimating an effect.
+**Research direction** — The academic research project will be a causal impact evaluation. The coauthors will choose the treatment contrast, target population, comparison, and estimand after auditing service delivery and ENDES support. Frame the contribution around the effect the chosen design identifies. The facility chronology and descriptive checks supply evidence for design selection. If the current contrast lacks credible identifying variation or adequate precision, revisit exposure, comparison, or data before estimating an effect.
 
 - The shared physical checkout uses `main` at `e14afbcf3db37be867bc132508889e5109274eef`. The setup branch already had a commit at `cc37054` before the switch. The scaffold and specialist edits are local, unstaged work on `main`. The entries below retain the branch and input state at the time of each check.
 - **02 Data and econometrics in Stata.** The seven-wave rebuild matched 105 saved diagnostics and 12 historical source hashes. The separate nine-wave run added 2019 and 2023. Replay signatures matched for the original seven waves. The private Stage 02 packet contains manifests, logs, and support checks. Ten regional anchors cover 3,650 of 9,013 eligible rural roster matches, with 101 localities observed on both sides of a regional start under the pilot timing rule. Facility service, geographic concordance, and comparison support remain open.
@@ -49,6 +49,10 @@ The Stata/MP 19 workflow rebuilt the 17 November pilot against all twelve pinned
 
 The private Stage 02 Dropbox packet contains the source and coded-data manifests, questionnaires, merge counts, missingness checks, calendar and geographic support, design-based descriptive precision and verification logs. Roster designation, regional operation and final health visit timing remain distinct. Facility service history, comparison support and the causal precision target remain open. Aggregate manuscript promotion awaits coauthor review.
 
+
+## 19 November 2026 — Standing Stata coding standard
+
+Jorge adopted the [Stata coding standard](STATA_CODING_STANDARD.txt) for all project Stata programming, review, refactoring, and reproducibility-package work. The file preserves the full supplied text. The [root project instructions](../AGENTS.md#stata-workflow) require it throughout development and milestone reviews.
 
 ## Handoffs
 

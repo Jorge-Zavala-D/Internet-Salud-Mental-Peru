@@ -1,0 +1,223 @@
+Please treat the following as standing instructions for all Stata programming, code review, refactoring and preparation of the reproducibility package for this research project.
+
+This is an academic social science project. Write Stata code in the style of a careful empirical researcher preparing a transparent, maintainable replication package for other researchers. The code should be explicit, conventional, well documented and closely connected to the substantive research decisions.
+
+By “human-readable research code,” I mean code that I, a coauthor, a research assistant or an independent reviewer can understand directly. The objective is clarity, scientific reliability and ease of review. Avoid unnecessary abstractions, elaborate programming frameworks and excessive indirection.
+
+Apply these principles during development. Conduct a more comprehensive review near major milestones, once the substantive workflow is stable. Do not repeatedly rewrite working code for cosmetic reasons or allow stylistic cleanup to displace substantive research.
+
+1. Study how experienced researchers actually write Stata code before undertaking major development or refactoring.
+
+Do not rely exclusively on generic programming conventions or your default coding style. Examine actual .do files and reproducibility packages from credible empirical research.
+
+Start with the project’s current literature review and bibliography:
+- Identify the papers with publicly available replication packages.
+- Establish which packages use Stata for data preparation, analysis or output production.
+- Locate the authoritative package through the published article, its repository record, DOI or an author-maintained repository.
+- Record the package version and distinguish the published replication package from later working code.
+- Inspect the actual master do-file, data preparation files, analytical do-files and table or figure scripts. Reading the README alone is insufficient.
+- Trace how the code implements the paper’s main empirical results and how individual scripts connect to specific tables, figures and appendix results.
+Review the available Stata packages systematically. Give particular attention to papers with similar data structures, research designs, estimators and output requirements. Where a package is unavailable, restricted or does not use Stata, record that limitation honestly.
+
+Supplement the bibliography with well-maintained packages from leading empirical journals and comparable research projects. Relevant examples may include the American Economic Review, American Economic Journal: Applied Economics, American Economic Journal: Economic Policy, Quarterly Journal of Economics, Review of Economics and Statistics, Journal of Development Economics, Journal of Public Economics, Economic Journal, Econometrica, Quantitative Economics and appropriate political science or policy journals.
+
+Select examples for their methodological relevance and code quality. Publication prestige alone does not establish that every coding choice is worth adopting.
+
+2. Use established Stata and reproducibility resources as substantive references.
+
+Study the relevant parts of the following resources and follow their links to applicable training materials, examples, templates and repositories.
+
+World Bank and DIME:
+- DIME Wiki
+- DIME guidance on reproducible research
+- Development Research in Practice: The DIME Analytics Data Handbook
+- DIME Analytics Coding Guide and Stata Style Guide
+- DIME research and coding standards repository
+- DIME/World Bank repositories
+- World Bank Reproducible Research Repository
+- World Bank reproducibility guidance, templates and review protocols
+J-PAL:
+- Data cleaning and management
+- Coding resources for randomized evaluations
+- Data publication
+Innovations for Poverty Action:
+- IPA Research and Data Science Knowledge Hub: data cleaning
+- IPA Knowledge Hub: practical guides
+- IPA’s Stata project template
+- IPA’s best practices for data and code management
+- IPA’s dataset comparison command, cfout
+Additional references:
+- Sean Higgins’s Stata Guide
+- AEA data and code policies and guidance
+- Stata’s documentation on integrated version control
+- The official Stata help files and manuals for every consequential command or behavior that is uncertain.
+Use these resources to inform concrete decisions. Do not mechanically import an institution’s entire template or assume that a recommended package is necessary for this project. Distinguish mandatory journal requirements, institutional recommendations and our own stylistic preferences.
+
+3. Make the review of reference packages concrete and verifiable.
+
+Maintain a concise record of the packages and guides actually examined. For each relevant package, identify:
+- The paper and authoritative repository.
+- The package version or access date.
+- The specific .do files reviewed.
+- The coding practices worth adopting.
+- Any practices that are unsuitable, outdated or unnecessarily complicated.
+- How the review informs a specific decision in this project.
+Study implementation details: how researchers use macros, loops, merges, variable construction, estimation commands, stored results, labels, comments and output routines.
+
+Do not say that you have “reviewed the replication package” if you only located it or read its description. Distinguish locating a package, inspecting its files, tracing its logic and successfully executing it.
+
+Execute external packages only when appropriate, feasible and consistent with project permissions. Inspect code before running it. Respect data restrictions, licenses and attribution requirements.
+
+4. Organize the Stata workflow around the research process.
+
+Use a clear master do-file that establishes the documented environment and runs the project’s scripts in an understandable order.
+
+Keep the distinction among raw inputs, intermediate data, analysis-ready data and final outputs clear. Organize do-files around coherent research tasks, such as data preparation, variable construction, descriptive analysis, main estimation, robustness analysis and output production.
+
+Reuse the project’s existing organization when it works. Do not impose a new folder structure or framework merely to resemble a reference package.
+
+The master do-file should make the workflow understandable. It should not become a complicated dispatcher with unnecessary modes, hidden dependencies or elaborate branching.
+
+A reviewer should be able to determine which do-file produces each important dataset, table and figure.
+
+5. Prefer explicit, conventional Stata syntax.
+
+Use familiar Stata commands and straightforward sequences of operations. Make consequential transformations visible where they occur.
+
+Prefer descriptive variable names, consistent formatting, readable indentation and explicit variable lists. Avoid unnecessary abbreviations, cryptic single-letter names, positional references and variable ranges whose meaning depends on the current order of variables.
+
+Use line continuation where it improves readability. Keep estimation specifications and export commands legible.
+
+Do not compress several important operations into a single expression merely to reduce the line count. A few explicit commands are preferable when they make the research logic easier to inspect.
+
+6. Use macros, loops and programs selectively.
+
+Use local macros for temporary values and genuinely useful lists. Keep project-wide path definitions centralized and avoid scattering machine-specific paths throughout the code.
+
+Avoid excessive global macros, nested macro expansion, dynamically constructed variable names and long chains of indirect references.
+
+Use foreach and forvalues when the underlying operation is genuinely repeated and consistent. Write commands separately when the specifications differ in scientifically meaningful ways that a loop would obscure.
+
+Create a Stata program only when it removes substantial repetition or implements a coherent operation that is clearer as a reusable unit. Keep its arguments, required inputs, outputs and side effects understandable.
+
+Do not create helper programs simply to wrap a short standard command or hide an important analytical decision. Equally, do not replace a clear, useful loop with hundreds of repeated statements.
+
+7. Make data construction and sample decisions inspectable.
+
+Keep the following visible and documented:
+- The unit of observation and identifying variables.
+- The construction of treatment variables, outcomes, controls, indices and subgroups.
+- Recodes, transformations, standardization and aggregation.
+- Sample restrictions and exclusions.
+- Treatment of duplicates, inconsistencies and missing values.
+- The progression from the source population to each analytical sample.
+Preserve raw variables when a transformation changes their interpretation. Label constructed variables and categorical values clearly, including units, reference periods and missing-value meanings where relevant.
+
+Do not overwrite raw datasets. Do not use replace, drop, keep, collapse, reshape or deduplication without understanding and documenting the implications for the unit of observation and retained population.
+
+8. Handle Stata’s data-management risks explicitly.
+
+Validate identifiers with commands such as isid before relying on their uniqueness. For merges, establish the intended relationship and inspect unmatched observations before deciding how to handle them.
+
+Do not use merge m:m or duplicates drop, force to make an unresolved data problem disappear. Genuine many-to-many relationships require an explicit representation and a documented reason for the chosen operation.
+
+Treat missing values deliberately. Stata’s numeric missing values can satisfy comparisons such as x > 0; use an explicit nonmissing condition when that is the intended logic. Distinguish zero from missing, not applicable, refused and unknown.
+
+Check how aggregation commands handle missing values. Do not allow an all-missing group to become a substantive zero without justification.
+
+Preserve identifier precision, leading zeros and meaningful string codes. Use storage types appropriate to the data, including sufficient precision for financial variables and calculations. Avoid unnecessary type conversions.
+
+Make date units, panel identifiers, time periods and reshape dimensions explicit. Never assume that the current sort order is a stable identifier.
+
+9. Comment the code thoroughly and explain consequential choices.
+
+Use concise section headers and comments that explain purpose, assumptions and reasoning.
+
+Comment individual lines when their meaning or consequences would otherwise be unclear. Explain why observations are excluded, why a recode is appropriate, how a measure follows the research design and why a particular estimator or inference procedure is used.
+
+Refer to the relevant source, protocol, pre-analysis plan, paper or methodological decision when appropriate.
+
+Comments should enable another researcher to understand and challenge the decision. Avoid repetitive comments that merely translate an obvious Stata command into English, decorative banners and conversational notes that do not belong in the final replication package.
+
+10. Write estimation code that exposes the research design.
+
+A reviewer should be able to identify the dependent variable, treatment, controls, fixed effects, weights, estimation sample, clustering level and other consequential options directly from the estimation block.
+
+Use factor-variable notation and interactions deliberately. Make reference categories and subgroup definitions clear.
+
+Keep genuinely different specifications visible. Avoid burying the main analysis inside a generic estimation wrapper that conceals what each model actually estimates.
+
+Store or export the intended results before later commands overwrite relevant e() or r() contents. Record the sample size and other necessary model information consistently.
+
+Generate tables and figures from the actual stored results. Do not manually transcribe estimates, uncertainty measures or significance indicators.
+
+Document the correspondence between analytical scripts and the paper’s main and appendix outputs.
+
+11. Make reproducibility part of the working code.
+
+Specify the intended Stata version and document relevant settings, dependencies and user-written commands.
+
+Do not assume that version freezes the behavior of independently updated packages. Record or preserve the dependency versions needed for reproduction, consistent with licenses and the project’s setup.
+
+Separate environment setup from routine analysis when appropriate. Do not automatically reinstall or update packages on every run in a way that silently changes the computational environment.
+
+Set and document random-number seeds for stochastic operations. Establish a deterministic ordering when random assignment, sampling, bootstrapping or another operation depends on observation order. Do not rely on an unstable ordering of tied observations.
+
+Keep logs and useful execution information. The documented master workflow should run from a clean Stata session without relying on objects, macros, datasets or estimates left over from earlier interactive work.
+
+For restricted data, document the access requirements and executable boundaries honestly. Synthetic or demonstration data should be clearly labelled and must not be presented as reproducing unavailable empirical results.
+
+12. Retain meaningful checks without building a defensive framework around every command.
+
+Use direct, research-relevant assertions and diagnostics for important assumptions: unique keys, merge relationships, record counts, valid ranges, sample composition, missingness, aggregation and consistency of constructed variables.
+
+Prefer a small number of meaningful checks to large amounts of repetitive validation that merely restate the implementation.
+
+Avoid blanket capture statements that hide errors. Use error handling selectively—for example, when checking whether an optional object exists or closing an already-open log—and do not suppress failures in consequential data transformations or estimation.
+
+When an important assumption fails, stop clearly. Do not silently substitute another input, change the sample, discard unmatched observations or switch methods.
+
+13. Preserve scientific results during stylistic revision.
+
+Before refactoring consequential code, establish the existing analytical baseline.
+
+A stylistic revision must preserve variable definitions, samples, weights, estimators, specifications, inference procedures and output interpretation unless I explicitly authorize a substantive change.
+
+Validate the revised workflow against the baseline using appropriate comparisons of:
+- Record identifiers and dataset contents.
+- Constructed variables and missingness.
+- Estimation samples.
+- Coefficients and relevant uncertainty measures.
+- Table contents and the data underlying figures.
+Use exact comparisons where appropriate. Declare and justify any numerical tolerance. File timestamps, formatting changes or other non-substantive representation differences should be distinguished from changes in analytical values.
+
+If you discover a bug or scientifically consequential ambiguity, report it separately. Do not hide a substantive correction inside a “code cleanup.”
+
+14. Prepare a replication package that another researcher can use.
+
+The final package should have a clear execution entry point, documented data inputs, understandable script order and an explicit mapping from code to reported outputs.
+
+Its README should explain the required Stata environment, dependencies, data access, execution instructions, expected runtime where known and any steps that cannot run without restricted materials.
+
+Keep the main results and appendix outputs reproducible from code. Separate exploratory work from the release workflow, while preserving research history appropriately.
+
+Exclude credentials, private personal paths, sensitive data and irrelevant internal correspondence from public materials. Do not confuse preparing a publication-ready package with authorization to publish it.
+
+Verify the actual final package from the documented entry point, rather than assuming that individually successful scripts establish complete reproducibility.
+
+15. Apply these standards proportionately and report the work honestly.
+
+Make the smallest complete improvement that solves the actual problem. Reuse clear existing code. Avoid new dependencies, wholesale rewrites and reorganizations without a concrete benefit.
+
+When changing a shared routine, inspect its callers and downstream outputs. Update the necessary documentation and checks so that the change is complete.
+
+At major milestones, review the full Stata workflow for unnecessary complexity, duplicated logic, unclear naming, hidden assumptions and fragile dependencies. Use the replication-package and methodological reviews to inform that work.
+
+Allocate substantial effort to studying relevant examples and resolving consequential uncertainty. Do not claim exhaustive review of an institution’s resources or the project’s literature packages when that review has not occurred. Keep a clear record of completed review and remaining work.
+
+For each completed coding task, state what changed, why it changed, what was verified, whether scientific behavior changed and what remains unresolved.
+
+The governing standard is:
+Another competent social scientist should be able to open the Stata code, understand the research decisions, trace the construction of the analytical data, reproduce the reported results and modify the workflow without first learning an unnecessary custom programming framework.
+
+Apply this standard throughout development and final preparation of the reproducibility package.
