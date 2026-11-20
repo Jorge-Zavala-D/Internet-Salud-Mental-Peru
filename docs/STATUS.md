@@ -2,6 +2,12 @@
 
 Record shareable summaries here at each handoff. Keep personal paths, unpublished decisions, and restricted evidence in the authorized private locations.
 
+## 20 November 2026 — Foundational Dropbox delivery
+
+- Use the existing project Dropbox for project data and run artifacts and the shared checkout for code and project documentation. The project Dropbox link is intentionally public. See [project storage rules](../AGENTS.md#writing-presentations-and-release).
+- Project Dropbox `3 Data` contains 47 files in `1 Raw` and 36 in `0 Support docs`. The source receipt lists 24 PRONATEL files and 15 ENDES documentation files. The 27 core ENDES modules for 2017–2025 remain in the frozen Stage 02 archive at their original paths. The project link opens the project folder. The archive currently shows Jorge-only access. The Data chat recorded destinations and dependencies for consolidation.
+- Keep effect estimation on hold. Obtain Junín’s signed access act, exceptions and named milestone lists, dated service and pending-service histories for candidate comparison sites, and historical locality-level mobile coverage. Resolve historical locality and facility linkage. For any design using 2020, resolve the ENDES telephone instrument and interview mode or document the coauthors’ decision about how to handle that wave.
+
 ## 19 November 2026 — Current coordination checkpoint
 
 **Research direction** — The academic research project will be a causal impact evaluation. The coauthors will choose the treatment contrast, target population, comparison, and estimand after auditing service delivery and ENDES support. Frame the contribution around the effect the chosen design identifies. The facility chronology and descriptive checks supply evidence for design selection. If the current contrast lacks credible identifying variation or adequate precision, revisit exposure, comparison, or data before estimating an effect.
