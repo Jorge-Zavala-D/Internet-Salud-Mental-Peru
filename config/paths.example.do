@@ -1,4 +1,3 @@
-* Copy into .local/paths.local.do inside your own checkout.
-* Enter the full local Dropbox project path from File Explorer, with forward slashes.
-* Alternatively supply the ECONTHAKI_DROPBOX environment variable to Stata.
+* Copy this file to .local/paths.local.do in the Git checkout.
+* Set the full local path to the project Dropbox folder, using forward slashes.
 global econ_dropbox ""

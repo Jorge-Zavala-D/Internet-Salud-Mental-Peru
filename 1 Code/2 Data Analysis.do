@@ -1,15 +1,26 @@
 version 16.0
-args series
-tempfile panel counts reference dates support
+args inputs run series
+
+log using "`run'/analysis.log", text name(descriptive)
+local edition = cond(c(MP), "MP", cond(c(SE), "SE", "BE"))
+display as text "Stata/`edition' " c(stata_version) ", " c(processors) " processor(s)"
+display as text "Input vintage: `inputs'"
+display as text "Dataset series: `series'"
+
+tempfile panel counts reference pair_overlap dates calendar_support pre_post precision
 tempname survey overlap repeated
 
-use wave hhid qs23 qsinty qs700a qs700b qs700c qs700d qs700e qs700f qs700g qs700h qs700i peso15_amas qhcluster hv001 hv022 youth rural nphq phq9 positive_weight eligible rural_youth pilot_key_valid locality_key_valid candidate_locality10 locality10 merge_roster roster_designated roster_group name_disagree visit_month home_internet project using "${econ_run}/coded.dta", clear
+use wave hhid qs23 qsinty qs700a qs700b qs700c qs700d qs700e qs700f qs700g qs700h qs700i ///
+    peso15_amas qhcluster hv001 hv022 youth rural nphq phq9 positive_weight eligible rural_youth ///
+    pilot_key_valid locality_key_valid candidate_locality10 locality10 merge_roster roster_designated ///
+    roster_group name_disagree visit_month home_internet project using "`run'/coded.dta", clear
 local coded_series : char _dta[series]
 assert "`coded_series'" == "`series'"
 isid wave hhid
 levelsof wave, local(waves)
 quietly save "`panel'"
 
+* Reconcile sample flow against the saved pilot benchmarks.
 local metrics health_n youth_n eligible_n rural_n nextyear_n invalid_total invalid_rural ///
     valid_total valid_rural observed_ccpp matched_people matched_ccpp discordant_people ///
     discordant_ccpp missing_home_net
@@ -44,10 +55,10 @@ collapse (sum) `metrics' age_missing youth_weight_valid youth_phq_complete ///
     eligible_urban eligible_residence_unknown eligible_visit_missing matched_visit_missing ///
     key_rule_disagrees, by(wave)
 isid wave
-export delimited using "${econ_run}/wave_counts.csv"
+export delimited using "`run'/wave_counts.csv"
 quietly save "`counts'"
 
-import delimited using "${econ_inputs}/muestra.csv", clear case(lower)
+import delimited using "`inputs'/muestra.csv", clear case(lower)
 rename anio wave
 unab truncated : ccpp_con_algun_nombre_no_ident*
 local legacy filas_salud edad_15_29 phq9_completo_peso_positivo jovenes_rurales ///
@@ -82,7 +93,7 @@ sort wave metric
 isid wave metric
 order wave metric observed benchmark difference status
 tabulate status
-export delimited using "${econ_run}/pilot_reconciliation.csv"
+export delimited using "`run'/pilot_reconciliation.csv"
 
 use "`panel'", clear
 keep if youth
@@ -95,7 +106,7 @@ generate byte no_home_internet_code = missing(home_internet)
 generate byte youth_records = 1
 quietly collapse (sum) youth_records phq_incomplete phq_no_valid_items weight_missing ///
     weight_nonpositive final_visit_missing no_home_internet_code, by(wave rural roster_group)
-export delimited using "${econ_run}/missingness.csv", nolabel
+export delimited using "`run'/missingness.csv", nolabel
 
 quietly use "`panel'", clear
 quietly keep if youth
@@ -112,7 +123,7 @@ generate str6 item = "qs700" + substr("abcdefghi",item_number,1)
 generate byte people = 1
 quietly collapse (sum) people, by(wave rural roster_group item raw_code)
 order wave rural roster_group item raw_code people
-export delimited using "${econ_run}/phq_raw_codes.csv", nolabel
+export delimited using "`run'/phq_raw_codes.csv", nolabel
 
 use "`panel'", clear
 keep if eligible
@@ -120,7 +131,7 @@ generate int visit_year = year(dofm(visit_month))
 generate byte visit_month_number = month(dofm(visit_month))
 generate byte people = 1
 quietly collapse (sum) people, by(wave visit_year visit_month_number rural roster_group)
-export delimited using "${econ_run}/visit_month_counts.csv", nolabel
+export delimited using "`run'/visit_month_counts.csv", nolabel
 
 quietly use "`panel'", clear
 quietly keep if rural_youth & locality_key_valid
@@ -134,7 +145,7 @@ foreach wave of local waves {
 }
 quietly bysort locality10 (wave): keep if _n == 1
 postfile `overlap' int wave_a wave_b str20 scope long localities_a localities_b shared ///
-    people_a_shared people_b_shared name_disagreement_shared using "`support'"
+    people_a_shared people_b_shared name_disagreement_shared using "`pair_overlap'"
 foreach a of local waves {
     foreach b of local waves {
         if `a' >= `b' continue
@@ -159,8 +170,8 @@ foreach a of local waves {
     }
 }
 postclose `overlap'
-use "`support'", clear
-export delimited using "${econ_run}/locality_pair_overlap.csv"
+use "`pair_overlap'", clear
+export delimited using "`run'/locality_pair_overlap.csv"
 
 use "`panel'", clear
 keep if rural_youth & locality_key_valid & roster_designated == 1
@@ -174,9 +185,9 @@ quietly egen byte period_locality = tag(project early locality10)
 quietly egen byte shared_locality = tag(project early locality10) if shared_person
 quietly egen byte discordant_shared = tag(project early locality10) if shared_person & any_name_disagreement
 collapse (sum) period_locality shared_locality shared_person discordant_shared, by(project early)
-export delimited using "${econ_run}/locality_block_overlap.csv"
+export delimited using "`run'/locality_block_overlap.csv"
 
-import delimited using "${econ_inputs}/regional_dates.csv", clear varnames(1) stringcols(_all)
+import delimited using "`inputs'/regional_dates.csv", clear varnames(1) stringcols(_all)
 isid project
 assert _N == 10
 generate int launch_day = daily(osiptel_date,"YMD")
@@ -193,10 +204,11 @@ tabulate merge_dates, missing
 preserve
 generate byte rows = 1
 collapse (sum) rows, by(merge_dates)
-export delimited using "${econ_run}/regional_calendar_merge.csv", nolabel
+export delimited using "`run'/regional_calendar_merge.csv", nolabel
 restore
 drop if merge_dates == 2
 format launch_day earliest_day latest_day %tdCCYY-NN-DD
+* Compare survey visit months with regional anchors while allowing for the PHQ recall window.
 generate int launch_month = mofd(launch_day)
 generate int event_month = visit_month - launch_month
 generate int visit_earliest = dofm(visit_month)
@@ -215,7 +227,7 @@ assert bounded_period == pilot_period if !missing(pilot_period) & pilot_period !
     & earliest_day == latest_day
 keep wave project locality10 hv001 visit_month launch_day launch_month event_month ///
     pilot_period bounded_period earlier_period
-quietly save "`support'", replace
+quietly save "`calendar_support'"
 
 egen byte locality_tag = tag(wave project visit_month locality10), missing
 egen byte psu_tag = tag(wave project visit_month hv001) if hv001 > 0 & hv001 < ., missing
@@ -223,12 +235,12 @@ generate byte people = 1
 collapse (sum) people localities=locality_tag psus=psu_tag, ///
     by(wave project visit_month launch_month event_month pilot_period bounded_period earlier_period)
 format visit_month launch_month %tm
-export delimited using "${econ_run}/regional_calendar_support.csv"
+export delimited using "`run'/regional_calendar_support.csv"
 
 postfile `repeated' str32 project str18 rule long pre_people post_people window_people ///
-    unknown_month pre_ccpp post_ccpp ccpp_both people_pre_both people_post_both using "`dates'", replace
+    unknown_month pre_ccpp post_ccpp ccpp_both people_pre_both people_post_both using "`pre_post'"
 foreach rule in pilot_period bounded_period earlier_period {
-    quietly use "`support'", clear
+    quietly use "`calendar_support'", clear
     quietly keep if !missing(launch_day)
     quietly bysort project locality10: egen byte has_pre = max(`rule' == -1)
     quietly bysort project locality10: egen byte has_post = max(`rule' == 1)
@@ -257,12 +269,13 @@ foreach rule in pilot_period bounded_period earlier_period {
     }
 }
 postclose `repeated'
-use "`dates'", clear
+use "`pre_post'", clear
 isid project rule
-export delimited using "${econ_run}/regional_pre_post.csv"
+export delimited using "`run'/regional_pre_post.csv"
 
+* Estimate each round's rural mean as a survey domain within its full design frame.
 postfile `survey' int wave long domain_n frame_n dropped_domain design_psus domain_psus ///
-    design_strata strata_df double kish_n mean_phq9 se ci_lower ci_upper using "`dates'", replace
+    design_strata strata_df double kish_n mean_phq9 se ci_lower ci_upper using "`precision'"
 foreach wave of local waves {
     quietly use "`panel'", clear
     quietly keep if wave == `wave'
@@ -295,9 +308,10 @@ foreach wave of local waves {
         (`avg'-`half') (`avg'+`half')
 }
 postclose `survey'
-use "`dates'", clear
+use "`precision'", clear
 isid wave
-export delimited using "${econ_run}/rural_descriptive_precision.csv"
+export delimited using "`run'/rural_descriptive_precision.csv"
 display as result "ECONTHAKI_ANALYSIS_OK `series'"
+log close descriptive
 
 

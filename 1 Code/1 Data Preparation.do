@@ -1,17 +1,28 @@
-* Run through 0 Master.do. The private input register preserves native INEI vintages.
 version 16.0
-args series
+args inputs run series
+
+* The historical series uses the pilot's seven rounds. The extension adds 2019 and 2023.
+if !inlist("`series'", "historical", "extended") {
+    display as error "Choose historical or extended for the ENDES series."
+    exit 198
+}
 local waves 2017 2018 2020 2021 2022 2024 2025
 if "`series'" == "extended" local waves 2017 2018 2019 2020 2021 2022 2023 2024 2025
+
+log using "`run'/prep.log", text name(preparation)
+local edition = cond(c(MP), "MP", cond(c(SE), "SE", "BE"))
+display as text "Stata/`edition' " c(stata_version) ", " c(processors) " processor(s)"
+display as text "Input vintage: `inputs'"
+display as text "Dataset series: `series'"
 
 tempfile module_map roster health households housing working coded
 tempname merge_audit
 
-quietly import delimited using "${econ_inputs}/core/modules.csv", clear stringcols(_all)
+quietly import delimited using "`inputs'/core/modules.csv", clear stringcols(_all)
 if "`series'" == "extended" {
     tempfile core_map
     quietly save "`core_map'"
-    quietly import delimited using "${econ_inputs}/extension/modules.csv", clear stringcols(_all)
+    quietly import delimited using "`inputs'/extension/modules.csv", clear stringcols(_all)
     quietly keep wave module source source_sha256 member file format encoding separator expected_rows input_sha256
     quietly append using "`core_map'"
 }
@@ -21,7 +32,7 @@ assert inlist(format, "csv", "sav", "dta")
 assert strlen(input_sha256) == 64 & strlen(source_sha256) == 64
 quietly save "`module_map'"
 
-quietly import delimited using "${econ_inputs}/roster_geoperu_20240416.csv", clear ///
+quietly import delimited using "`inputs'/roster_geoperu_20240416.csv", clear ///
     varnames(1) stringcols(1/5) encoding("utf-8")
 isid cod_ccpp
 assert ustrregexm(cod_ccpp, "^[0-9]{10}$")
@@ -40,7 +51,7 @@ quietly save "`roster'"
 local items qs700a qs700b qs700c qs700d qs700e qs700f qs700g qs700h qs700i
 postfile `merge_audit' int wave str24 relation str8 cardinality long ///
     master_before using_before master_only using_only matched master_retained ///
-    using "${econ_run}/merge_counts.dta"
+    using "`run'/merge_counts.dta"
 
 local first = 1
 foreach wave of local waves {
@@ -56,20 +67,19 @@ foreach wave of local waves {
         local hash = input_sha256[1]
         local parent_hash = source_sha256[1]
         display as text "INPUT `wave' `module' `file' sha256=`hash' source_sha256=`parent_hash'"
-        confirm file "${econ_inputs}/`file'"
         if "`fmt'" == "csv" {
             local delimiter ","
             if "`sep'" == "semicolon" local delimiter ";"
             if "`sep'" == "pipe" local delimiter "|"
             assert inlist("`sep'", "comma", "semicolon", "pipe")
-            quietly import delimited using "${econ_inputs}/`file'", clear ///
+            quietly import delimited using "`inputs'/`file'", clear ///
                 varnames(1) case(lower) stringcols(_all) delimiters("`delimiter'") ///
                 bindquote(strict) encoding("`encoding'")
             assert _N == `expected'
         }
-        if "`fmt'" == "sav" quietly import spss using "${econ_inputs}/`file'", clear case(lower)
+        if "`fmt'" == "sav" quietly import spss using "`inputs'/`file'", clear case(lower)
         if "`fmt'" == "dta" {
-            quietly use "${econ_inputs}/`file'", clear
+            quietly use "`inputs'/`file'", clear
             rename *, lower
         }
         assert _N > 0
@@ -112,6 +122,7 @@ foreach wave of local waves {
         quietly save "`destination'", replace
     }
 
+    * Start from the selected health respondents and retain that unit after both household joins.
     quietly use "`health'", clear
     label drop _all
     foreach m in 0 23 {
@@ -149,6 +160,7 @@ foreach wave of local waves {
     quietly save "`working'", replace
     quietly keep if wave == `wave'
 
+    * The PHQ score uses all nine items in their valid range.
     local valid_items
     foreach field of local items {
         quietly generate byte valid_`field' = `field' if inlist(`field',0,1,2,3)
@@ -164,6 +176,7 @@ foreach wave of local waves {
     generate byte eligible = youth & nphq == 9 & positive_weight
     generate byte rural_youth = eligible & rural == 1
 
+    * Retain the pilot key rule for reconciliation and the component-length rule for later diagnostics.
     generate byte pilot_key_valid = ustrregexm(strtrim(ubigeo) + strtrim(codccpp), "^[0-9]{10}$")
     generate byte locality_key_valid = ustrregexm(strtrim(ubigeo), "^[0-9]{6}$") ///
         & ustrregexm(strtrim(codccpp), "^[0-9]{4}$")
@@ -217,9 +230,9 @@ foreach wave of local waves {
     local first = 0
 }
 postclose `merge_audit'
-use "${econ_run}/merge_counts.dta", clear
+use "`run'/merge_counts.dta", clear
 isid wave relation
-export delimited using "${econ_run}/merge_counts.csv"
+export delimited using "`run'/merge_counts.csv"
 
 foreach data in working coded {
     quietly use "``data''", clear
@@ -228,7 +241,8 @@ foreach data in working coded {
     label data "Private ENDES `series' vintage"
     char _dta[series] "`series'"
     datasignature
-    save "${econ_run}/`data'.dta"
+    save "`run'/`data'.dta"
 }
 display as result "ECONTHAKI_PREPARATION_OK `series'"
+log close preparation
 

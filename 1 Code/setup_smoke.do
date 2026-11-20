@@ -1,4 +1,4 @@
-* Synthetic test only. Run in a fresh Stata session through 0 Master.do smoke.
+* Synthetic test only. Run this file on its own in a fresh Stata session.
 * The dataset and every output in this test are temporary.
 version 16.0
 preserve

@@ -2,6 +2,11 @@
 
 Record shareable summaries here at each handoff. Keep personal paths, unpublished decisions, and restricted evidence in the authorized private locations.
 
+## 20 November 2026 — First technical meeting follow-up
+
+- Aurelia will read the literature and add her PRONATEL sources and contact references to the existing project Dropbox.
+- Data will review the Stata pipeline against the [coding standard](STATA_CODING_STANDARD.txt) and simplify the master using Jorge’s CFI-DPI-Migrant-Women-Colombia and VictimasRD repositories as style references. The master should contain Stata settings, project paths, required package setup, and direct calls to preparation and analysis. Confirm the frozen seven-wave and nine-wave reference results after refactoring. Effect estimation remains on hold.
+
 ## 20 November 2026 — Foundational Dropbox delivery
 
 - Use the existing project Dropbox for project data and run artifacts and the shared checkout for code and project documentation. The project Dropbox link is intentionally public. See [project storage rules](../AGENTS.md#writing-presentations-and-release).
