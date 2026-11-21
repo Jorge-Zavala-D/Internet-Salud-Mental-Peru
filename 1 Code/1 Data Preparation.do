@@ -51,12 +51,13 @@ program define read_endes_module
             local lon long_ccpp
             local lat lat_ccpp
         }
-        local numbers hv001 hv015 hv022 hv023 hv024 hv025 `lon' `lat'
+        local numbers hv001 hv012 hv015 hv022 hv023 hv024 hv025 `lon' `lat'
         if `year' >= 2016 local text_fields hhid codccpp nomccpp
         if `year' >= 2018 local text_fields hhid codccpp nomccpp ubigeo
     }
-    if "`table'" == "RECH23" local numbers sh61q shprovin shdistri
-    if "`table'" == "RECH1" local numbers hvidx hv104 hv105
+    if "`table'" == "RECH23" local numbers sh61q shprovin shdistri hv201 hv205 hv206 ///
+        hv207 hv208 hv209 hv213 hv216 hv219 hv220 hv270
+    if "`table'" == "RECH1" local numbers hvidx hv101 hv102 hv104 hv105 hv108 hv109 hv116 hv121
 
     keep `text_fields' `numbers'
     preserve
@@ -92,7 +93,15 @@ program define read_endes_module
         }
         if `year' < 2018 generate str6 ubigeo = ""
     }
-    if "`table'" == "RECH1" rename (hvidx hv104 hv105) (qsnumero roster_sex roster_age)
+    if "`table'" == "RECH1" {
+        * Take education from the one member identified as the household head.
+        tempvar heads
+        quietly bysort hhid: egen int `heads' = total(hv101==1)
+        quietly by hhid: egen byte hh_head_education = ///
+            max(cond(`heads'==1 & hv101==1 & inrange(hv109,0,5),hv109,.))
+        drop `heads'
+        rename (hvidx hv104 hv105) (qsnumero roster_sex roster_age)
+    }
 end
 
 * Build one survey wave before adding it to the repeated cross-section.
@@ -112,11 +121,9 @@ program define append_endes_wave
     local housing_n = _N
     quietly save "`housing'"
 
-    if inlist(`year',2016,2017) {
-        read_endes_module `year' RECH1 "`inventory'" `import_counts' "`source_fields'"
-        local roster_n = _N
-        quietly save "`roster'"
-    }
+    read_endes_module `year' RECH1 "`inventory'" `import_counts' "`source_fields'"
+    local roster_n = _N
+    quietly save "`roster'"
 
     * Keep the selected health respondents after each household join.
     quietly use "`health'", clear
@@ -140,19 +147,17 @@ program define append_endes_wave
     quietly drop if housing_merge == 2
     drop housing_merge
 
-    generate byte roster_checked = inlist(`year',2016,2017)
-    if inlist(`year',2016,2017) {
-        * RECH1 is available in both full annual intakes. Match the selected member's line.
-        quietly merge 1:1 hhid qsnumero using "`roster'", generate(roster_merge) nolabel
-        tabulate roster_merge
-        quietly count if roster_merge == 1
-        local health_only = r(N)
-        quietly count if roster_merge == 2
-        post `merge_counts' (`year') ("person_roster") ("1:1") (`health_n') (`roster_n') ///
-            (`health_only') (r(N)) (`health_n'-`health_only') (`health_n')
-        quietly drop if roster_merge == 2
-        drop roster_merge roster_sex roster_age
-    }
+    * Read personal covariates from the selected member's exact household line.
+    quietly merge 1:1 hhid qsnumero using "`roster'", generate(roster_merge) nolabel
+    tabulate roster_merge
+    quietly count if roster_merge == 1
+    local health_only = r(N)
+    quietly count if roster_merge == 2
+    post `merge_counts' (`year') ("person_roster") ("1:1") (`health_n') (`roster_n') ///
+        (`health_only') (r(N)) (`health_n'-`health_only') (`health_n')
+    quietly drop if roster_merge == 2
+    generate byte roster_checked = roster_merge == 3
+    drop roster_merge
 
     generate int wave = `year'
     quietly append using "`appended'"
@@ -331,6 +336,37 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     replace internet_status = 2 if missing(sh61q) & inlist(hv015,2,3,4,5,6,7,8,9)
     replace internet_status = 3 if !missing(sh61q) & missing(home_internet)
     replace internet_status = 4 if missing(internet_status)
+
+    * Use the health interview age. An adjacent roster age can reflect the interview dates.
+    generate int roster_age_gap = qs23 - roster_age if inrange(qs23,0,96) & inrange(roster_age,0,96)
+    generate byte person_covariates_held = roster_checked == 0
+    replace person_covariates_held = 1 if !missing(roster_age_gap) & abs(roster_age_gap)>1
+    replace person_covariates_held = 1 if inlist(qssexo,1,2) & inlist(roster_sex,1,2) & qssexo!=roster_sex
+    drop roster_sex
+
+    * The household roster covers both sexes. Schooling follows the published years and attainment.
+    generate byte education_years = hv108 if !person_covariates_held & inrange(hv108,0,21)
+    replace education_years = . if wave<=2018 & education_years==21
+    generate byte education_attainment = hv109 if !person_covariates_held & inrange(hv109,0,5)
+    * The attendance question covers ages 3 to 24. Released zeros outside that range are routed skips.
+    generate byte school_attended = hv121 if !person_covariates_held & inrange(roster_age,3,24) & inlist(hv121,0,1)
+    replace school_attended = 1 if !person_covariates_held & inrange(roster_age,3,24) & wave<=2018 & hv121==2
+    generate byte usual_resident = hv102 if !person_covariates_held & inlist(hv102,0,1)
+    generate byte union_status = hv116 if !person_covariates_held & inlist(hv116,0,1,2)
+
+    * Household conditions refer to the household interview. Keep the published source codes.
+    generate byte hh_usual_members = hv012 if inrange(hv012,0,cond(wave<=2018,90,25))
+    generate byte hh_sleeping_rooms = hv216 if inrange(hv216,0,cond(wave<=2018,24,15))
+    generate byte hh_head_age = hv220 if inrange(hv220,12,97)
+    generate byte hh_head_female = (hv219==2) if inlist(hv219,1,2)
+    generate byte hh_electricity = hv206 if inlist(hv206,0,1)
+    generate byte hh_piped_drinking_water = (hv201==11) if inlist(hv201,11,12,13,21,22,41,43,51,61,71,96)
+    generate byte hh_public_sewer_inside = (hv205==11) if inlist(hv205,11,12,21,22,23,24,31,32,96)
+    generate byte hh_earthen_floor = (hv213==11) if inlist(hv213,11,21,31,32,33,34,96)
+    generate byte hh_radio = hv207 if inlist(hv207,0,1)
+    generate byte hh_television = hv208 if inlist(hv208,0,1)
+    generate byte hh_refrigerator = hv209 if inlist(hv209,0,1)
+    generate byte hh_wealth_quintile = hv270 if inrange(hv270,1,5)
 
     * Q700 records nine symptoms over the previous 14 days. The score requires nine valid responses.
     local phq_items qs700a qs700b qs700c qs700d qs700e qs700f qs700g qs700h qs700i
@@ -524,6 +560,10 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
         2 "Approved statistical locality crosswalk" 3 "Exact locality unresolved"
     label define coordinate_status 0 "Published axes plausible" 1 "Swapped, same-code INEI reference within 1 m" ///
         2 "Swap candidate without reference confirmation" 3 "Source coordinate missing" 4 "Outside geographic range"
+    label define attainment 0 "No schooling" 1 "Primary incomplete" 2 "Primary complete" ///
+        3 "Secondary incomplete" 4 "Secondary complete" 5 "Higher education"
+    label define union_status 0 "Never in union" 1 "Currently in union" 2 "Formerly in union"
+    label define wealth_rank 1 "Lowest" 2 "Second" 3 "Middle" 4 "Fourth" 5 "Highest"
     label values age_band age_band
     label values hv025 area
     label values qssexo sex
@@ -536,13 +576,18 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     label values locality_review locality_review
     label values district_link_status district_link_status
     label values coordinate_status coordinate_status
+    label values education_attainment hh_head_education attainment
+    label values union_status union_status
+    label values hh_wealth_quintile wealth_rank
     label values main_wave mode_review youth rural positive_weight health_complete home_internet ///
         eligible eligible_rural_youth visit_day_released date_anomaly day_anomaly next_calendar_year ///
         fieldwork_unexpected psu_disagreement survey_design_missing district_conflict district_range_review ///
         pilot_geographic_shape native_key_valid ///
         service_site_review code_switch_review sensitivity_broad sensitivity_strict sensitivity_corroborated ///
         sensitivity_later_review geography_hold locality_usable coordinate_swapped roster_checked ///
-        field_staff_removed raw_point_plausible swap_candidate yes_no
+        field_staff_removed raw_point_plausible swap_candidate ///
+        person_covariates_held school_attended usual_resident hh_head_female hh_electricity ///
+        hh_piped_drinking_water hh_public_sewer_inside hh_earthen_floor hh_radio hh_television hh_refrigerator yes_no
 
     label variable wave "ENDES sampling wave"
     label variable hhid "INEI household case code (unique within wave)"
@@ -641,7 +686,28 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     label variable swap_candidate "2025 coordinate axes plausible only when reversed"
     label variable coordinate_status "Survey coordinate interpretation"
     label variable coordinate_swapped "2025 swap confirmed by independent same-code INEI point"
-    label variable roster_checked "2016–2017 selected person verified in the household roster"
+    label variable roster_checked "Exact household and selected member line found in RECH1"
+    label variable roster_age "Released age on the selected member's household roster line"
+    label variable roster_age_gap "Health interview age minus roster age below the top-coded range"
+    label variable person_covariates_held "Missing roster line, sex conflict or reported ages differ by over one year"
+    label variable education_years "Years of education as recorded in the household roster"
+    label variable education_attainment "Schooling attained according to the household roster"
+    label variable school_attended "Attended in the current school year (roster ages 3 to 24)"
+    label variable usual_resident "Usual member of this household in the household roster"
+    label variable union_status "Current, former or never in a union at roster interview"
+    label variable hh_usual_members "Number of usual household members"
+    label variable hh_sleeping_rooms "Number of rooms used for sleeping"
+    label variable hh_head_age "Age of household head (97 indicates 97 years or more)"
+    label variable hh_head_female "Household head recorded as female"
+    label variable hh_head_education "Schooling attained by the unique household head"
+    label variable hh_electricity "Household has electricity"
+    label variable hh_piped_drinking_water "Public piped drinking water inside the dwelling"
+    label variable hh_public_sewer_inside "Toilet connected to public sewer inside the dwelling"
+    label variable hh_earthen_floor "Main floor material is earth or sand"
+    label variable hh_radio "Household owns a radio"
+    label variable hh_television "Household owns a television"
+    label variable hh_refrigerator "Household owns a refrigerator or freezer"
+    label variable hh_wealth_quintile "INEI household wealth quintile for this wave"
     label variable field_staff_removed "Source is 2016 health copy with staff identifier fields omitted"
 
     order wave hhid qsnumero main_wave eligible eligible_rural_youth sensitivity_strict locality10 ///
@@ -651,6 +717,7 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     label data "ENDES selected-person repeated cross-sections, survey preparation"
     char _dta[series] "`series'"
     char _dta[source_vintage] "endes-2016-2017-full-intake-2026-11-20-v1; frozen 2018–2025 and audited 2015"
+    char _dta[covariates] "Official roster and household covariates, intake verified 2026-11-21"
     char _dta[wave_key] "wave hhid; qsnumero records selected household member"
     char _dta[interview_mode] "2020 mixed mode. Respondent-level administration unverified."
     char _dta[locality_audit] "endes-pronatel-locality-adjudication-2026-11-20-v1"

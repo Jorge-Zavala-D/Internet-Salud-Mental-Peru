@@ -9,6 +9,8 @@ import re
 
 MANIFEST = "ENDES-all-project-datasets-2026-11-20-v1.csv"
 MANIFEST_SHA = "d7d32b986b1f9468d588675d52e98d3447b242f7c4d98ee419f719c2d5b1b816"
+ROSTER_MANIFEST = "ENDES-covariate-inputs-2026-11-21.csv"
+ROSTER_MANIFEST_SHA = "08145c0f8280d3489ee3043de6276dfb18e4ef40ef40e7bf686636a826e0d5b5"
 DISTRICT_REVIEW_SHA = "f2c0cdeadb70bf1002f807ffdbb011c06c0ab4fc47d606ebb740e7b9fdb699b7"
 EVIDENCE = {
     "locality_adjudication_ledger.csv": "bc705fccc5cecc834df4d3387574f12f0be4658714d2561b54223d7a697afd13",
@@ -44,22 +46,28 @@ def verify(path, expected):
 
 
 def stage(project, geographic_audit, earlier, crosswalk, output, district_review=None):
-    manifest = project / "3 Data" / "0 Support docs" / MANIFEST
-    verify(manifest, MANIFEST_SHA)
+    support = project / "3 Data" / "0 Support docs"
     modules = []
-    provenance = [dict(role="source catalogue", path=manifest.as_posix(), sha256=MANIFEST_SHA)]
-    for row in read_csv(manifest):
-        path = (project / row["project_relative_path"]).resolve()
-        sha = verify(path, row["sha256"])
-        core = row["workflow_role"] in ("core preparation", "respondent roster candidate")
-        modules.append(dict(wave=row["wave"], table=row["table_id"], role="core" if core else "context",
-                            path=path.as_posix(), format=row["format"], rows=row["observations"],
-                            variables=row["variable_count"], encoding=row.get("csv_encoding", ""),
-                            separator=row.get("csv_separator", ""), sha256=sha, unit=row["unit"],
-                            keys=row["key_fields_to_validate"], publisher_url=row["source_publisher_url"],
-                            publisher_member=row["source_publisher_member"], dictionary_url=row["dictionary_url"]))
-    if len(modules) != 86 or len({(r["wave"], r["table"]) for r in modules}) != 86:
-        raise ValueError("Expected the pinned inventory of 86 distinct project inputs.")
+    provenance = []
+    for name, fingerprint in ((MANIFEST, MANIFEST_SHA), (ROSTER_MANIFEST, ROSTER_MANIFEST_SHA)):
+        manifest = support / name
+        sha = verify(manifest, fingerprint)
+        provenance.append(dict(role="source catalogue", path=manifest.as_posix(), sha256=sha))
+        for row in read_csv(manifest):
+            if row["wave"] == "2015" and earlier is None:
+                continue
+            path = (project / row["project_relative_path"]).resolve()
+            sha = verify(path, row["sha256"])
+            core = row["workflow_role"] in ("core preparation", "respondent roster candidate")
+            modules.append(dict(wave=row["wave"], table=row["table_id"], role="core" if core else "context",
+                                path=path.as_posix(), format=row["format"], rows=row["observations"],
+                                variables=row["variable_count"], encoding=row.get("csv_encoding", ""),
+                                separator=row.get("csv_separator", ""), sha256=sha, unit=row["unit"],
+                                keys=row["key_fields_to_validate"], publisher_url=row["source_publisher_url"],
+                                publisher_member=row["source_publisher_member"], dictionary_url=row["dictionary_url"]))
+    expected = 94 if earlier is None else 95
+    if len(modules) != expected or len({(r["wave"], r["table"]) for r in modules}) != expected:
+        raise ValueError(f"Expected {expected} distinct project inputs in the two pinned inventories.")
 
     if earlier is not None:
         source_register = {r["local_derivative"]:r for r in read_csv(earlier / "source_manifest.csv")
