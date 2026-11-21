@@ -36,6 +36,26 @@ For a verification run, pass a scratch output directory and `endes_pilot`
 arguments. The 2016–2025 builds use the district ledger. Only the build with
 2015 needs the two 2015 staging options. [Dataset variables, geography and outputs](docs/ENDES_DATA_PREPARATION.md)
 
+### PRONATEL roster and service chronology
+
+Use the reviewed `events.csv`, `sources.csv` and `roster_geoperu_20240416.csv`
+in project Dropbox under `3 Data/0 Support docs/PRONATEL/Chronology inputs`.
+From the checkout root, run the master in a fresh named Stata MCP session.
+
+```stata
+do "1 Code/0 Master.do" "<full path to Chronology inputs>" "" pronatel
+```
+
+This replaces `3 Data/2 Working/PRONATEL_coded.dta` and refreshes the
+preparation log and event counts in `3 Data/0 Support docs/PRONATEL`.
+Pass an existing scratch directory as the second argument for verification.
+Use `event_id` as the row key. The roster subset has one row per locality.
+The chronology can have several events for a locality and service venue.
+Keep facility, service venue and intended users in view when reading the
+dates. Roster inclusion, a project-level milestone and an observed service
+day carry different meanings. The support documents record the evidence and
+the ENDES interview-window checks.
+
 ### Frozen Stage 02 replay
 
 Use the frozen Stage 02 input directory (`inputs-v1`), with `core/modules.csv`,

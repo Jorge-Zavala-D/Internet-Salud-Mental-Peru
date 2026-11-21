@@ -820,6 +820,120 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     exit
 }
 
+* PRONATEL roster and service chronology. Each row is one roster entry or one sourced event.
+if "`series'" == "pronatel" {
+    local working "`run'"
+    if "`run'" == "" {
+        local working "${econ_dropbox}/3 Data/2 Working"
+        local run "${econ_dropbox}/3 Data/0 Support docs/PRONATEL"
+    }
+
+    log using "`run'/pronatel_preparation.log", text replace name(pronatel_prep)
+    local edition = cond(c(MP), "MP", cond(c(SE), "SE", "BE"))
+    display "Stata/`edition' " c(stata_version) " revision " c(born_date)
+    display "PRONATEL evidence input: `inputs'"
+
+    tempfile sources roster
+    quietly import delimited using "`inputs'/sources.csv", clear varnames(1) stringcols(_all) encoding("utf-8")
+    quietly save "`sources'"
+
+    quietly import delimited using "`inputs'/roster_geoperu_20240416.csv", clear ///
+        varnames(1) stringcols(_all) encoding("utf-8")
+    keep if py_ban_anc == "PY_REGIONAL"
+    rename (cod_ccpp nom_ccpp estado_py iiee_py eess_py) ///
+        (locality10 locality_name roster_status roster_schools roster_health_posts)
+    destring roster_schools roster_health_posts, replace
+    generate str28 project = ustrregexs(1) if ustrregexm(nom_proyec, "^\[REGIONAL\]\[(.+?)\]$")
+    generate str36 event_id = "GEO20240416-" + locality10
+    generate str20 scope = "locality"
+    generate str20 evidence_grade = "published_roster"
+    generate str20 geography_status = "roster_code"
+    generate str26 event_type = "roster_snapshot"
+    generate str24 source_id = "GEO20240416"
+    generate str80 source_locator = "PY_REGIONAL, COD_CCPP " + locality10
+    generate str30 service = "Regional roster designation"
+    generate str24 roster_vintage = "GeoPeru 2024-04-16"
+    generate str14 date_precision = "snapshot day"
+    generate str10 date_min_raw = "2024-04-16"
+    generate str10 date_max_raw = "2024-04-16"
+    drop py_ban_anc nom_proyec
+    quietly save "`roster'"
+
+    quietly import delimited using "`inputs'/events.csv", clear varnames(1) stringcols(_all) encoding("utf-8")
+    quietly append using "`roster'"
+    merge m:1 source_id using "`sources'", keep(master match) generate(source_merge)
+
+    generate int event_first = daily(date_min_raw,"YMD")
+    generate int event_last = daily(date_max_raw,"YMD")
+    generate int source_date = daily(source_date_raw,"YMD")
+    generate byte verified_venue = geography_status=="verified" & ///
+        ustrregexm(locality10,"^[0-9]{10}$") & !missing(facility_id) & ///
+        inlist(scope,"facility","public venue")
+
+    * A witnessed link bounds first use from above for that service. It supplies no start day or uninterrupted use.
+    generate int first_usable_earliest = event_first if source_merge==3 & verified_venue & ///
+        inlist(event_type,"local_service_start","local_start_window")
+    generate int first_usable_latest = event_last if source_merge==3 & verified_venue & ///
+        (inlist(event_type,"local_service_start","local_start_window","usable_service_observed") | ///
+        event_type=="provisional_service_observed")
+    generate int installation_pending_asof = event_last if source_merge==3 & verified_venue & ///
+        event_type=="installation_incomplete" & !missing(event_first,event_last) & event_first==event_last
+    generate str10 start_status = "unresolved"
+    replace start_status = "bounded" if !missing(first_usable_earliest) | !missing(first_usable_latest)
+    replace start_status = "exact" if event_type=="local_service_start" & ///
+        !missing(first_usable_earliest,first_usable_latest) & first_usable_earliest==first_usable_latest
+
+    * Only an explicit finding for this venue can define a waiting, operating or interrupted interval.
+    generate int waiting_from = event_first if source_merge==3 & verified_venue & ///
+        event_type=="documented_waiting" & !missing(event_first,event_last) & event_first<=event_last
+    generate int waiting_through = event_last if !missing(waiting_from)
+    generate int operating_from = event_first if source_merge==3 & verified_venue & ///
+        event_type=="documented_operation_window" & !missing(event_first,event_last) & event_first<=event_last
+    generate int operating_through = event_last if !missing(operating_from)
+    generate int interruption_from = event_first if source_merge==3 & verified_venue & ///
+        event_type=="documented_interruption" & !missing(event_first,event_last) & event_first<=event_last
+    generate int interruption_through = event_last if !missing(interruption_from)
+    format event_first event_last source_date first_usable_earliest first_usable_latest installation_pending_asof ///
+        waiting_from waiting_through operating_from operating_through interruption_from ///
+        interruption_through %tdCCYY-NN-DD
+
+    label data "PRONATEL regional roster and sourced service events"
+    label variable event_id "Source-record ID, unique within this dataset"
+    label variable verified_venue "Audited locality and service-venue identifier"
+    label variable event_first "Earliest date of this event in the source"
+    label variable event_last "Latest date of this event in the source"
+    label variable first_usable_earliest "Lower bound on first usable service at this venue and service type"
+    label variable first_usable_latest "Upper bound from witnessed or explicitly dated first service"
+    label variable start_status "Evidence for first usable service, by event"
+    label variable installation_pending_asof "Verified incomplete installation on this day"
+    label variable waiting_from "Start of affirmed waiting interval for this venue and service"
+    label variable waiting_through "End of affirmed waiting interval for this venue and service"
+    label variable operating_from "Start of documented usable service interval"
+    label variable operating_through "End of documented usable service interval"
+    label variable interruption_from "Start of documented interruption interval"
+    label variable interruption_through "End of documented interruption interval"
+    char _dta[grain] "One roster designation snapshot or one sourced chronology event"
+    char _dta[use] "Verified timing is specific to the stated service and venue"
+
+    order event_id project project_id scope locality10 locality_name facility_id operator_site_id ///
+        site_name service intended_users event_type event_first event_last date_precision start_status source_id
+    sort event_id
+    compress
+
+    preserve
+    generate byte observations = 1
+    collapse (sum) observations, by(project scope service event_type start_status)
+    export delimited using "`run'/pronatel_event_counts.csv", replace
+    restore
+
+    quietly datasignature
+    local signature "`r(datasignature)'"
+    quietly save "`working'/PRONATEL_coded.dta", replace
+    display "PRONATEL_PREPARATION_OK " _N " records " "`signature'"
+    log close pronatel_prep
+    exit
+}
+
 * Frozen Stage 02 replay. Preserve the existing working and coded data contracts.
 
 * The historical series uses the pilot's seven rounds. The extension adds 2019 and 2023.
