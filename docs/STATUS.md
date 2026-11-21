@@ -2,6 +2,12 @@
 
 Record shareable summaries here at each handoff. Keep personal paths, unpublished decisions, and restricted evidence in the authorized private locations.
 
+## 21 November 2026 — ENDES checkpoint and PRONATEL preparation
+
+- The candidate main ENDES series is **2016–2025**. Keep **2015 for sensitivity analysis** using the approved strict linkage rule (2,157 eligible interviews). The 2013 and 2014 rounds are outside the locality analysis. Keep the frozen seven- and nine-wave Stage 02 replays separately identifiable.
+- The 21 November build of `3 Data/2 Working/ENDES_coded.dta` is the current survey-only file. It has 377,526 respondent-wave rows and 140 variables. Of 34,630 eligible rural respondents aged 15–29 in the main waves, 34,548 have usable locality assignments and 82 remain on geography hold. Preserve the approved case-specific assignments and the separate flag for unresolved project sites. The [preparation notes](ENDES_DATA_PREPARATION.md) document PHQ-9, interview timing, survey weights, and the harmonized schooling and household variables. Treat interview-time covariates as descriptive until their role and timing are justified. The 2020 telephone-mode decision remains open.
+- Data will now prepare PRONATEL from the original records and existing audit ledgers. Verify named locality and facility IDs, original eligibility and revisions, the first usable service date or defensible bounds, and documented periods when comparable eligible sites were still waiting. Junín is the first test of whether the same evidence can be recovered across sites. Preserve the distinction between regional operation, roster designation, and usable service. Unknown timing stays unknown. Report which places and interview windows qualify and which records are still needed before the coauthors choose the treatment and comparison. Effect estimation remains on hold.
+
 ## 20 November 2026 — First technical meeting follow-up
 
 - Aurelia will read the literature and add her PRONATEL sources and contact references to the existing project Dropbox.
