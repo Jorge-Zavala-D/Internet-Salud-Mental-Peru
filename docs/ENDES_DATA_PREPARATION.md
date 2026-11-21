@@ -29,7 +29,7 @@ The pinned Dropbox inventory is `3 Data/0 Support docs/ENDES-all-project-dataset
 
 The approved 21 November 2026 district ledger covers 107 eligible rural interviews at 35 distinct wave-and-geography records. It corroborates seven released codes where the housing components disagree, supports 65 assignments through settlement-specific crosswalks, and holds 35 interviews for unresolved historical geography. The staging script verifies the ledger hash and supplies only its Stata join fields and approved decisions. The join uses both code fields and the released coordinates as recorded in the ledger. It changes no INEI source field.
 
-`district_link_status` identifies interviews outside this audit (0), corroborated released codes (1), approved statistical crosswalks (2), and unresolved district cases (3). `district_review_id` points to the protected adjudication ledger. `native_key_valid` continues to record the original component consistency check. `locality10` contains the approved derived assignment where available. Always use `locality_usable` when forming a geographically usable sample. A possible code switch or unresolved identity from the earlier review can carry a native key under a hold. A project-site review is a separate flag and the ENDES block assigns no broadband operation or treatment status.
+`district_link_status` identifies interviews outside this audit (0), corroborated released codes (1), approved statistical crosswalks (2), and unresolved district cases (3). `district_review_id` points to the adjudication ledger. `native_key_valid` continues to record the original component consistency check. `locality10` contains the approved derived assignment where available. Always use `locality_usable` when forming a geographically usable sample. A possible code switch or unresolved identity from the earlier review can carry a native key under a hold. A project-site review is a separate flag and the ENDES block assigns no broadband operation or treatment status.
 
 ### Primary documentation pages
 
@@ -56,9 +56,9 @@ The annual INEI files and the 2020 October manual were inspected alongside the r
 
 Use [the master instructions](../README.md#run-the-stata-workflow). The staged inventory covers 86 project files plus three pinned 2015 files in the sensitivity run. The two-wave full intakes include 54 contextual tables in addition to the eight preparation inputs. The workflow imports and checks each table against its own source grain. It records nonunique candidate keys as requiring review before a later join. These independent universes stay in their published files until an approved analysis needs an explicit linkage or aggregation. The linked survey file uses only `CSALUD01`, `RECH0`, `RECH23` and the available `RECH1` person-line validation. The two `CSALUD08` releases have a separate, unique household-and-child-index key using `QHCLUSTER QHNUMBER QHHOME QS801`. The household member line `QS800` is largely unreleased in those two tables. The reviewed 2017 child-discipline key has an incomplete component. These are separate instruments, so retaining their grain and flags avoids a false link to the selected adult health sample.
 
-The protected run contains one permanent Stata dataset. All assembled wave files and per-module extracts use Stata temporary files.
+The master replaces `3 Data/2 Working/ENDES_coded.dta` on each project run. The file opens directly in Stata. The preparation records below refresh in `3 Data/0 Support docs`. All assembled wave files and per-module extracts use Stata temporary files.
 
-| Protected artifact | Purpose |
+| Output | Purpose |
 | --- | --- |
 | `ENDES_coded.dta` | One row per selected respondent-wave, sorted by `wave hhid` |
 | `endes_inputs.csv` and `endes_evidence.csv` | Source catalogue, units, paths, SHA-256, dictionary and audit fingerprints |
@@ -72,4 +72,4 @@ The two-wave audit targets 3,558 and 3,534 eligible rural respondents in 2016 an
 
 The 2015 audit has 3,926 eligible rural respondents, 3,145 broad geographic matches, 2,157 strict matches and 581 strict matches with further geographic corroboration. Ten strictly linked 2015 interviews use codes that overlap an open later-wave case. Comparing the 2025 axes does not modify the locality field.
 
-Keep the Stata run, detailed diagnostics and raw key joins in a controlled location. The project Dropbox working folder can be reached through the shared project link. Place the validated `ENDES_coded.dta.gpg` there and keep the passphrase in the approved private channel. After obtaining access, decrypt into a controlled local directory before opening with Stata. Verify against the version’s contents signature. [GnuPG symmetric encryption and decryption](https://www.gnupg.org/documentation/manuals/gnupg/Operational-GPG-Commands.html)
+The current build’s contents signature is in `3 Data/0 Support docs/endes_signature.txt`.

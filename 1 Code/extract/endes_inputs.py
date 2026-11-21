@@ -44,8 +44,6 @@ def verify(path, expected):
 
 
 def stage(project, geographic_audit, earlier, crosswalk, output, district_review=None):
-    if output.is_relative_to(project):
-        raise ValueError("Put the staging directory outside the shared Dropbox tree.")
     manifest = project / "3 Data" / "0 Support docs" / MANIFEST
     verify(manifest, MANIFEST_SHA)
     modules = []
@@ -156,11 +154,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("project_dropbox", type=Path)
     parser.add_argument("locality_audit", type=Path)
-    parser.add_argument("output", type=Path, help="New directory outside the shared Dropbox tree")
+    parser.add_argument("output", type=Path, help="New directory for the staged input tables")
     parser.add_argument("--earlier", type=Path, help="2015 native module and receipt directory")
     parser.add_argument("--crosswalk", type=Path, help="2015 locality evidence directory")
     parser.add_argument("--district-review", type=Path,
-                        help="Approved private district case ledger required for the 2016–2025 build")
+                        help="Approved district case ledger required for the 2016–2025 build")
     args = parser.parse_args()
     if bool(args.earlier) != bool(args.crosswalk):
         parser.error("--earlier and --crosswalk are both required for the 2015 sensitivity inputs")

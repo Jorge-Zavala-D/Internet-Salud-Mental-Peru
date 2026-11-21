@@ -10,41 +10,38 @@ The do-files use Stata 16 syntax and built-in commands, including
 
 ### ENDES survey preparation
 
-Use a fresh, empty run directory outside the shared Dropbox and checkout. Verify
-the raw-file and geographic-audit vintages before starting the named Stata MCP
-session. The staging script uses Python 3.11 or later and its standard library.
-It hashes the raw files in place and writes only the verification manifest
-and GIS evidence extracts. Stata installs no packages for this block.
+Stage the current source inventory before starting the named Stata MCP session.
+The staging script uses Python 3.11 or later and its standard library. It hashes
+the raw files in place and writes the input manifest and geographic evidence
+tables. Stata installs no packages for this block.
 
 ```powershell
-python "1 Code/extract/endes_inputs.py" "<project Dropbox>" "<approved locality audit>" "<new protected input directory>" --district-review "<private 09_case_adjudication.csv>" --earlier "<2015 INEI source audit>" --crosswalk "<2015 locality evidence audit>"
+python "1 Code/extract/endes_inputs.py" "<project Dropbox>" "<approved locality audit>" "<new staged input directory>" --district-review "<district case ledger>" --earlier "<2015 INEI source audit>" --crosswalk "<2015 locality evidence audit>"
 ```
 
-From the checkout root, use one of these commands with its own fresh protected run directory.
+From the checkout root, run the master with the staged inputs.
 
 ```stata
-do "1 Code/0 Master.do" "<protected input directory>" "<protected pilot path>" endes_pilot
-do "1 Code/0 Master.do" "<protected input directory>" "<protected main path>" endes
-do "1 Code/0 Master.do" "<protected input directory>" "<protected full path>" endes_with_2015
+do "1 Code/0 Master.do" "<staged input directory>"
 ```
 
-`endes_pilot` checks 2016–2017, `endes` covers 2016–2025, and
-`endes_with_2015` adds the predesignated 2015 sensitivity wave to the same long
-file. Supply the approved district ledger for `endes` and `endes_with_2015`.
-Only the last series needs the two 2015 staging options. All three
-write a single `ENDES_coded.dta` plus protected diagnostics. The working folder
-in the existing project Dropbox holds the encrypted copy of the validated
-canonical run. When evolving or testing only the preparation stage, load
-`.local/paths.local.do` in a fresh session and call `1 Code/1 Data Preparation.do`
-with the same three arguments. [Dataset variables, geography and outputs](docs/ENDES_DATA_PREPARATION.md)
+The default series is `endes_with_2015`. It covers 2016–2025 and includes the
+separately flagged 2015 sensitivity wave. Each successful run replaces
+`3 Data/2 Working/ENDES_coded.dta` in project Dropbox and refreshes the
+preparation records in `3 Data/0 Support docs`. Open the working file directly
+in Stata. Use one working dataset per source in this folder.
+
+For a verification run, pass a scratch output directory and `endes_pilot`
+(2016–2017), `endes` (2016–2025), or `endes_with_2015` as the next two
+arguments. The 2016–2025 builds use the district ledger. Only the build with
+2015 needs the two 2015 staging options. [Dataset variables, geography and outputs](docs/ENDES_DATA_PREPARATION.md)
 
 ### Frozen Stage 02 replay
 
 Use the frozen Stage 02 input directory (`inputs-v1`), with `core/modules.csv`,
 `muestra.csv`, the roster and `regional_dates.csv`. The `extended` series also
 reads `extension/modules.csv`. The module registers identify the exact files and
-formats. Use a fresh, existing run directory and keep working data, linked rows
-and unreviewed diagnostics out of public sync.
+formats. Use a fresh, existing run directory for each replay.
 
 ```stata
 do "1 Code/0 Master.do" "<full frozen input path>" "<run folder relative to project Dropbox>" historical

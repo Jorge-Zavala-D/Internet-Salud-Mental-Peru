@@ -5,13 +5,12 @@ set more off
 set linesize 140
 
 * 2. Git checkout and Dropbox paths
-* Start in the checkout root. Use an absolute protected run path for ENDES.
-* Frozen replay still accepts its original Dropbox-relative run path.
+* Start in the checkout root. An optional run folder can be relative to Dropbox.
 args inputs run_folder series
 local checkout "`c(pwd)'"
 do ".local/paths.local.do"
 local run "`run_folder'"
-if !regexm("`run_folder'", "^([A-Za-z]:|/)") local run "${econ_dropbox}/`run_folder'"
+if "`run_folder'" != "" & !regexm("`run_folder'", "^([A-Za-z]:|/)") local run "${econ_dropbox}/`run_folder'"
 
 * 3. User-written dependencies
 * This workflow uses only built-in Stata commands.

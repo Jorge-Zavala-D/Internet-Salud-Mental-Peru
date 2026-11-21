@@ -70,9 +70,13 @@ Execute external packages only when appropriate, feasible and consistent with pr
 
 4. Organize the Stata workflow around the research process.
 
-Use a clear master do-file that establishes the documented environment and runs the project’s scripts in an understandable order.
+Keep the master in four plain blocks, in this order: standard Stata settings, checkout and Dropbox paths, any dependencies actually used, and direct sequential calls to the stage do-files. Use the existing ignored machine-local paths file. Keep stage calls visible and individually runnable.
 
-Keep the distinction among raw inputs, intermediate data, analysis-ready data and final outputs clear. Organize do-files around coherent research tasks, such as data preparation, variable construction, descriptive analysis, main estimation, robustness analysis and output production.
+Put all raw-data cleaning, harmonization, processing, merges, and variable construction in 1 Data Preparation.do. Use a plainly labeled section for each source and keep research decisions visible where the code implements them.
+
+Use 2 Data Analysis.do for approved models and the operations strictly needed to run them and produce their tables and figures. Run data preparation and workflow verification in their own stages. Preserve the existing Stage 02 replay as the historical record.
+
+Keep raw inputs, temporary intermediates, working data and analysis outputs distinct. Save one ordinary .dta file per source directly in 3 Data/2 Working, using the same filename on every run. Replace that dataset after preparation completes. Open it directly in Stata. Keep current preparation records in 3 Data/0 Support docs and use Stata temporary files for intermediate data.
 
 Reuse the project’s existing organization when it works. Do not impose a new folder structure or framework merely to resemble a reference package.
 
@@ -96,11 +100,11 @@ Use local macros for temporary values and genuinely useful lists. Keep project-w
 
 Avoid excessive global macros, nested macro expansion, dynamically constructed variable names and long chains of indirect references.
 
-Use foreach and forvalues when the underlying operation is genuinely repeated and consistent. Write commands separately when the specifications differ in scientifically meaningful ways that a loop would obscure.
+List sources and waves explicitly in new preparation code. Use direct Stata commands for the constructions and merges. In analysis, a short loop can repeat an identical, approved operation. Write scientifically different specifications separately.
 
 Create a Stata program only when it removes substantial repetition or implements a coherent operation that is clearer as a reusable unit. Keep its arguments, required inputs, outputs and side effects understandable.
 
-Do not create helper programs simply to wrap a short standard command or hide an important analytical decision. Equally, do not replace a clear, useful loop with hundreds of repeated statements.
+Keep short standard commands in place. A compact routine can handle a repeated operation such as reading a raw module or assembling a survey wave. Put substantive choices where another researcher can see them.
 
 7. Make data construction and sample decisions inspectable.
 
@@ -117,7 +121,7 @@ Do not overwrite raw datasets. Do not use replace, drop, keep, collapse, reshape
 
 8. Handle Stata’s data-management risks explicitly.
 
-Validate identifiers with commands such as isid before relying on their uniqueness. For merges, establish the intended relationship and inspect unmatched observations before deciding how to handle them.
+Check identifier uniqueness with isid in a separate verification run. In preparation, declare the intended relationship in the merge command and tabulate its outcomes. Use the survey or source unit to decide how unmatched records enter the working data.
 
 Do not use merge m:m or duplicates drop, force to make an unresolved data problem disappear. Genuine many-to-many relationships require an explicit representation and a documented reason for the chosen operation.
 
@@ -165,17 +169,17 @@ Set and document random-number seeds for stochastic operations. Establish a dete
 
 Keep logs and useful execution information. The documented master workflow should run from a clean Stata session without relying on objects, macros, datasets or estimates left over from earlier interactive work.
 
+Use the configured Stata MCP for Stata execution. Test substantive changes on scratch data in a named session, run the saved workflow through the master in a fresh session, and reopen the saved data for verification. Record the Stata edition and revision, inputs, session, checks and output location.
+
 For restricted data, document the access requirements and executable boundaries honestly. Synthetic or demonstration data should be clearly labelled and must not be presented as reproducing unavailable empirical results.
 
-12. Retain meaningful checks without building a defensive framework around every command.
+12. Run verification separately from the production do-files.
 
-Use direct, research-relevant assertions and diagnostics for important assumptions: unique keys, merge relationships, record counts, valid ranges, sample composition, missingness, aggregation and consistency of constructed variables.
+Use separate verification runs for assertions, key uniqueness checks, expected count comparisons, setup probes, and exact comparisons with pinned results. Check merge relationships, valid ranges, sample composition, missingness, aggregation and consistency of constructed variables. Verification runs use scratch outputs.
 
-Prefer a small number of meaningful checks to large amounts of repetitive validation that merely restate the implementation.
+Keep the active production scripts focused on the data work. Use ordinary merge counts and preparation receipts to record what ran. Let Stata report native errors directly. Keep generic dispatch, fallback messages and assertion blocks out of the active master, preparation and analysis code.
 
-Avoid blanket capture statements that hide errors. Use error handling selectively—for example, when checking whether an optional object exists or closing an already-open log—and do not suppress failures in consequential data transformations or estimation.
-
-When an important assumption fails, stop clearly. Do not silently substitute another input, change the sample, discard unmatched observations or switch methods.
+When a verification fails, identify its input and rule before changing the workflow. Preserve the declared source, sample and method while resolving the discrepancy.
 
 13. Preserve scientific results during stylistic revision.
 

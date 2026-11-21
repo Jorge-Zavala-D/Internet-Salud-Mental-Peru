@@ -1,5 +1,6 @@
 version 16.0
 args inputs run series
+if "`series'" == "" local series endes_with_2015
 
 * Read a source using its recorded format and retain only the fields used in the survey file.
 program define read_endes_module
@@ -160,13 +161,14 @@ end
 
 * ENDES survey preparation. Each row represents one selected person in one survey wave.
 if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
-    * Keep the clear respondent file outside the shared Dropbox folder.
-    local dropbox = ustrlower(subinstr("${econ_dropbox}",char(92),"/",.))
-    local output = ustrlower(subinstr("`run'",char(92),"/",.))
-    if "`dropbox'" == "" | !regexm("`output'", "^([a-z]:/|/)") | ///
-        strpos("`output'/","`dropbox'/") == 1 | strpos("`output'/","/../") exit 198
+    * The project run replaces one working dataset and refreshes the preparation records.
+    local working "`run'"
+    if "`run'" == "" {
+        local working "${econ_dropbox}/3 Data/2 Working"
+        local run "${econ_dropbox}/3 Data/0 Support docs"
+    }
 
-    log using "`run'/endes_preparation.log", text name(endes_prep)
+    log using "`run'/endes_preparation.log", text replace name(endes_prep)
     local edition = cond(c(MP), "MP", cond(c(SE), "SE", "BE"))
     display "Stata/`edition' " c(stata_version) " revision " c(born_date)
     display "ENDES input register: `inputs'/modules.csv. Series: `series'."
@@ -184,8 +186,8 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     quietly destring wave, replace
     keep if inrange(wave,`first',`last')
     quietly destring rows variables, replace
-    export delimited using "`run'/endes_inputs.csv"
-    copy "`inputs'/input_provenance.csv" "`run'/endes_evidence.csv"
+    export delimited using "`run'/endes_inputs.csv", replace
+    copy "`inputs'/input_provenance.csv" "`run'/endes_evidence.csv", replace
     quietly save "`inventory'"
 
     clear
@@ -274,16 +276,16 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
 
     use "`import_counts'", clear
     sort wave table
-    export delimited using "`run'/endes_import_counts.csv"
+    export delimited using "`run'/endes_import_counts.csv", replace
 
     use "`merge_counts'", clear
-    export delimited using "`run'/endes_merge_counts.csv"
+    export delimited using "`run'/endes_merge_counts.csv", replace
 
     use "`source_fields'", clear
     sort wave table position
     order wave table native_field native_type native_label
     drop position
-    export delimited using "`run'/endes_source_fields.csv"
+    export delimited using "`run'/endes_source_fields.csv", replace
 
     * Read the approved locality decisions before matching them to the assembled survey.
     quietly import delimited using "`inputs'/locality_reviews.csv", clear stringcols(_all) encoding("utf-8")
@@ -658,7 +660,7 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     local signature "`r(datasignature)'"
     local total = _N
     local columns = c(k)
-    * Save one respondent file and write the preparation diagnostics beside it.
+    * Write the preparation diagnostics and save one respondent file.
     preserve
         generate byte Health = 1
         generate byte Age = youth
@@ -699,16 +701,16 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
             DistrictNativeConfirmed DistrictCrosswalk DistrictLinkUnresolved SiteReview ///
             CodeReview VerifiedIdentity UnresolvedIdentity AxesSwapped sensitivity_broad sensitivity_strict ///
             sensitivity_corroborated sensitivity_later_review, by(wave)
-        export delimited using "`run'/endes_wave_checks.csv"
+        export delimited using "`run'/endes_wave_checks.csv", replace
     restore
     preserve
         * Count every combination of native visit fields, including records without a usable date.
         contract wave qsinty qsintm qsintd date_precision health_complete mode_review, freq(interviews)
-        export delimited using "`run'/endes_visit_calendar.csv"
+        export delimited using "`run'/endes_visit_calendar.csv", replace
     restore
     preserve
         contract wave age_band rural mode_review qsresult nphq, freq(interviews)
-        export delimited using "`run'/endes_phq_completeness.csv"
+        export delimited using "`run'/endes_phq_completeness.csv", replace
     restore
     preserve
         * Count each response status separately for the nine items.
@@ -726,22 +728,22 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
         label values nqs700*
         order nqs700*, alphabetic last
         collapse (sum) nqs700*, by(wave age_band rural mode_review)
-        export delimited using "`run'/endes_phq_item_routing.csv"
+        export delimited using "`run'/endes_phq_item_routing.csv", replace
     restore
     preserve
         quietly keep if positive_weight
         collapse (count) n=health_weight (min) minimum=health_weight (p1) p01=health_weight ///
             (p50) median=health_weight (p99) p99=health_weight (max) maximum=health_weight, by(wave)
-        export delimited using "`run'/endes_weight_check.csv"
+        export delimited using "`run'/endes_weight_check.csv", replace
     restore
     preserve
         quietly describe, replace clear
-        export delimited using "`run'/endes_codebook.csv"
+        export delimited using "`run'/endes_codebook.csv", replace
     restore
 
-    quietly save "`run'/ENDES_coded.dta"
+    quietly save "`working'/ENDES_coded.dta", replace
     tempname receipt
-    file open `receipt' using "`run'/endes_signature.txt", write text
+    file open `receipt' using "`run'/endes_signature.txt", write text replace
     file write `receipt' "series=`series'" _n "Stata/`edition' " (c(stata_version)) " " (c(born_date)) _n ///
         "observations=`total'" _n "variables=`columns'" _n "signature=`signature'" _n
     file close `receipt'
