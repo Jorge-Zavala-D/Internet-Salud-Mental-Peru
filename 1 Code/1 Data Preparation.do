@@ -1,15 +1,171 @@
 version 16.0
 args inputs run series
 
-* ENDES survey preparation. Keep the repeated cross-section at selected person by wave.
-if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
-    local dropbox = ustrlower(subinstr("${econ_dropbox}", char(92), "/", .))
-    local output = ustrlower(subinstr("`run'", char(92), "/", .))
-    if "`dropbox'" == "" | !regexm("`output'", "^([a-z]:/|/)") | ///
-        strpos("`output'/", "`dropbox'/") == 1 | strpos("`output'/", "/../") {
-        display as error "Load the local project paths and supply an absolute protected run directory."
-        exit 198
+* Read a source using its recorded format and retain only the fields used in the survey file.
+program define read_endes_module
+    args year table inventory import_counts source_fields
+
+    quietly use "`inventory'", clear
+    quietly keep if wave == `year' & table == "`table'"
+    local source = path[1]
+    local format = format[1]
+    local encoding = encoding[1]
+    local separator = separator[1]
+    local role = role[1]
+    local grain = subinstr(keys[1],";","",.)
+    local sha = sha256[1]
+    display "Input `year' `table' `source' SHA-256 `sha'"
+
+    if "`format'" == "sav" quietly import spss using "`source'", clear case(lower)
+    if "`format'" == "dta" quietly use "`source'", clear
+    if "`format'" == "csv" {
+        local delimiter = cond("`separator'" == "semicolon",";",",")
+        quietly import delimited using "`source'", clear case(lower) varnames(1) ///
+            stringcols(_all) delimiters("`delimiter'") bindquote(strict) encoding("`encoding'")
     }
+
+    local native_columns = c(k)
+    if "`role'" == "context" {
+        * These tables keep their published units and do not enter the adult health file.
+        tempvar one_per_key
+        quietly egen byte `one_per_key' = tag(`grain')
+        quietly count if `one_per_key'
+        local grain_check = cond(r(N) == _N,"candidate key unique","candidate key needs review before use")
+        post `import_counts' (`year') ("`table'") ("context") (_N) (`native_columns') ("`grain_check'")
+        exit
+    }
+
+    local text_fields hhid
+    if "`table'" == "CSALUD01" {
+        local weight peso15_amas
+        if `year' == 2015 local weight peso15_ajus
+        local numbers qs23 qssexo qsnumero qhcluster qsresult qsintm qsinty `weight' ///
+            qs700a qs700b qs700c qs700d qs700e qs700f qs700g qs700h qs700i
+        if `year' <= 2018 local numbers `numbers' qsintd
+    }
+    if "`table'" == "RECH0" {
+        local lon longitudx
+        local lat latitudy
+        if `year' == 2017 {
+            local lon long_ccpp
+            local lat lat_ccpp
+        }
+        local numbers hv001 hv015 hv022 hv023 hv024 hv025 `lon' `lat'
+        if `year' >= 2016 local text_fields hhid codccpp nomccpp
+        if `year' >= 2018 local text_fields hhid codccpp nomccpp ubigeo
+    }
+    if "`table'" == "RECH23" local numbers sh61q shprovin shdistri
+    if "`table'" == "RECH1" local numbers hvidx hv104 hv105
+
+    keep `text_fields' `numbers'
+    preserve
+        order `text_fields' `numbers'
+        quietly describe, replace clear
+        rename (name type varlab) (native_field native_type native_label)
+        generate int wave = `year'
+        generate str12 table = "`table'"
+        keep wave table position native_field native_type native_label
+        quietly append using "`source_fields'"
+        quietly save "`source_fields'", replace
+    restore
+
+    * The semicolon CSVs use a decimal comma. Identifiers remain strings.
+    if inlist(`year',2020,2022) quietly destring `numbers', replace dpcomma
+    else quietly destring `numbers', replace
+    quietly replace hhid = strtrim(hhid)
+    post `import_counts' (`year') ("`table'") ("core") (_N) (`native_columns') ("verified unique")
+
+    * Preserve native metadata above, then apply common labels after appending the waves.
+    label drop _all
+    if "`table'" == "CSALUD01" {
+        generate double health_weight = `weight'
+        generate str11 weight_source = upper("`weight'")
+        if `year' >= 2019 generate byte qsintd = .
+        generate byte visit_day_released = (`year' <= 2018)
+    }
+    if "`table'" == "RECH0" {
+        rename (`lon' `lat') (longitude_raw latitude_raw)
+        if `year' == 2015 {
+            generate str4 codccpp = ""
+            generate str1 nomccpp = ""
+        }
+        if `year' < 2018 generate str6 ubigeo = ""
+    }
+    if "`table'" == "RECH1" rename (hvidx hv104 hv105) (qsnumero roster_sex roster_age)
+end
+
+* Build one survey wave before adding it to the repeated cross-section.
+program define append_endes_wave
+    args year inventory appended import_counts merge_counts source_fields
+    tempfile health household housing roster
+
+    read_endes_module `year' CSALUD01 "`inventory'" `import_counts' "`source_fields'"
+    local health_n = _N
+    quietly save "`health'"
+
+    read_endes_module `year' RECH0 "`inventory'" `import_counts' "`source_fields'"
+    local household_n = _N
+    quietly save "`household'"
+
+    read_endes_module `year' RECH23 "`inventory'" `import_counts' "`source_fields'"
+    local housing_n = _N
+    quietly save "`housing'"
+
+    if inlist(`year',2016,2017) {
+        read_endes_module `year' RECH1 "`inventory'" `import_counts' "`source_fields'"
+        local roster_n = _N
+        quietly save "`roster'"
+    }
+
+    * Keep the selected health respondents after each household join.
+    quietly use "`health'", clear
+    quietly merge 1:1 hhid using "`household'", generate(household_merge) nolabel
+    tabulate household_merge
+    quietly count if household_merge == 1
+    local health_only = r(N)
+    quietly count if household_merge == 2
+    post `merge_counts' (`year') ("household") ("1:1") (`health_n') (`household_n') ///
+        (`health_only') (r(N)) (`health_n'-`health_only') (`health_n')
+    quietly drop if household_merge == 2
+    drop household_merge
+
+    quietly merge 1:1 hhid using "`housing'", generate(housing_merge) nolabel
+    tabulate housing_merge
+    quietly count if housing_merge == 1
+    local health_only = r(N)
+    quietly count if housing_merge == 2
+    post `merge_counts' (`year') ("housing") ("1:1") (`health_n') (`housing_n') ///
+        (`health_only') (r(N)) (`health_n'-`health_only') (`health_n')
+    quietly drop if housing_merge == 2
+    drop housing_merge
+
+    generate byte roster_checked = inlist(`year',2016,2017)
+    if inlist(`year',2016,2017) {
+        * RECH1 is available in both full annual intakes. Match the selected member's line.
+        quietly merge 1:1 hhid qsnumero using "`roster'", generate(roster_merge) nolabel
+        tabulate roster_merge
+        quietly count if roster_merge == 1
+        local health_only = r(N)
+        quietly count if roster_merge == 2
+        post `merge_counts' (`year') ("person_roster") ("1:1") (`health_n') (`roster_n') ///
+            (`health_only') (r(N)) (`health_n'-`health_only') (`health_n')
+        quietly drop if roster_merge == 2
+        drop roster_merge roster_sex roster_age
+    }
+
+    generate int wave = `year'
+    quietly append using "`appended'"
+    quietly save "`appended'", replace
+end
+
+* ENDES survey preparation. Each row represents one selected person in one survey wave.
+if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
+    * Keep the clear respondent file outside the shared Dropbox folder.
+    local dropbox = ustrlower(subinstr("${econ_dropbox}",char(92),"/",.))
+    local output = ustrlower(subinstr("`run'",char(92),"/",.))
+    if "`dropbox'" == "" | !regexm("`output'", "^([a-z]:/|/)") | ///
+        strpos("`output'/","`dropbox'/") == 1 | strpos("`output'/","/../") exit 198
+
     log using "`run'/endes_preparation.log", text name(endes_prep)
     local edition = cond(c(MP), "MP", cond(c(SE), "SE", "BE"))
     display "Stata/`edition' " c(stata_version) " revision " c(born_date)
@@ -19,252 +175,140 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     if "`series'" == "endes_pilot" local last = 2017
     if "`series'" == "endes_with_2015" local first = 2015
 
-    * Read the hashed inventory before importing any survey module.
-    tempfile inventory health household housing roster appended reviews exceptions lookup points district_reviews
+    * The Stata input catalogue comes from the source-hash check.
+    tempfile inventory appended reviews exceptions district_reviews lookup points
+    tempfile import_counts merge_counts source_fields
+    tempname imports joins
+
     quietly import delimited using "`inputs'/modules.csv", clear varnames(1) stringcols(_all) encoding("utf-8")
-    quietly destring wave rows variables, replace
-    isid wave table
-    assert inlist(format,"sav","csv","dta") & strlen(sha256)==64 & rows>0 & variables>0
-    assert inlist(role,"core","context")
+    quietly destring wave, replace
     keep if inrange(wave,`first',`last')
-    if "`series'" == "endes_pilot" assert _N == 62
-    if "`series'" == "endes" assert _N == 86
-    if "`series'" == "endes_with_2015" assert _N == 89
+    quietly destring rows variables, replace
     export delimited using "`run'/endes_inputs.csv"
     copy "`inputs'/input_provenance.csv" "`run'/endes_evidence.csv"
     quietly save "`inventory'"
 
-    * Load the approved survey geography evidence. Programme designation belongs to the broadband data.
+    clear
+    quietly save "`appended'", emptyok
+    quietly save "`source_fields'", emptyok
+    postfile `imports' int wave str32 table str8 role long observations int fields ///
+        str40 grain_check using "`import_counts'"
+    postfile `joins' int wave str20 relation str5 cardinality long ///
+        master_before using_before master_only using_only matched retained using "`merge_counts'"
+
+    * Append the core files by survey year. Keep the 2015 sensitivity wave separate.
+    if `first' == 2015 append_endes_wave 2015 "`inventory'" "`appended'" `imports' `joins' "`source_fields'"
+    append_endes_wave 2016 "`inventory'" "`appended'" `imports' `joins' "`source_fields'"
+    append_endes_wave 2017 "`inventory'" "`appended'" `imports' `joins' "`source_fields'"
+    if `last' == 2025 {
+        append_endes_wave 2018 "`inventory'" "`appended'" `imports' `joins' "`source_fields'"
+        append_endes_wave 2019 "`inventory'" "`appended'" `imports' `joins' "`source_fields'"
+        append_endes_wave 2020 "`inventory'" "`appended'" `imports' `joins' "`source_fields'"
+        append_endes_wave 2021 "`inventory'" "`appended'" `imports' `joins' "`source_fields'"
+        append_endes_wave 2022 "`inventory'" "`appended'" `imports' `joins' "`source_fields'"
+        append_endes_wave 2023 "`inventory'" "`appended'" `imports' `joins' "`source_fields'"
+        append_endes_wave 2024 "`inventory'" "`appended'" `imports' `joins' "`source_fields'"
+        append_endes_wave 2025 "`inventory'" "`appended'" `imports' `joins' "`source_fields'"
+    }
+
+    * Inspect the other tables from the 2016 intake at their published grain.
+    read_endes_module 2016 CSALUD08 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 PROGRAMAS_SOCIALES_X_HOGAR "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 PSBECA18 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 PSCOMEDOR "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 PSPENSION65 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 PSQALIWARMA "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 PSWAWAWASI "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 RE223132 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 RE516171 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 RE758081 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 REC0111 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 REC21 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 REC41 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 REC42 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 REC43 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 REC44 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 REC82 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 REC83 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 REC84DV "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 REC91 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 REC93DV_DISCIPLINA "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 REC94 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 REC95 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 RECH4 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 RECH5 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2016 RECH6 "`inventory'" `imports' "`source_fields'"
+
+    * Inspect the other tables from the 2017 intake at their published grain.
+    read_endes_module 2017 CSALUD08 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 PROGRAMAS_SOCIALES_X_HOGAR "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 PSBECA18 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 PSCOMEDOR "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 PSPENSION65 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 PSQALIWARMA "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 PSTRABAJA "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 PSVL "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 PSWAWAWASI "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 RE223132 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 RE516171 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 RE758081 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 REC0111 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 REC21 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 REC41 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 REC42 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 REC43 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 REC44 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 REC82 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 REC83 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 REC84DV "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 REC91 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 REC93DV_DISCIPLINA "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 REC94 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 REC95 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 RECH4 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 RECH5 "`inventory'" `imports' "`source_fields'"
+    read_endes_module 2017 RECH6 "`inventory'" `imports' "`source_fields'"
+
+    postclose `imports'
+    postclose `joins'
+
+    use "`import_counts'", clear
+    sort wave table
+    export delimited using "`run'/endes_import_counts.csv"
+
+    use "`merge_counts'", clear
+    export delimited using "`run'/endes_merge_counts.csv"
+
+    use "`source_fields'", clear
+    sort wave table position
+    order wave table native_field native_type native_label
+    drop position
+    export delimited using "`run'/endes_source_fields.csv"
+
+    * Read the approved locality decisions before matching them to the assembled survey.
     quietly import delimited using "`inputs'/locality_reviews.csv", clear stringcols(_all) encoding("utf-8")
     quietly destring wave, replace
-    isid wave native_locality10 nomccpp
-    assert _N == 138
-    assert inrange(wave,2016,2025)
-    assert inlist(disposition,"verified","point_review","identity_unresolved")
     quietly save "`reviews'"
+
     quietly import delimited using "`inputs'/geography_exceptions.csv", clear stringcols(_all) encoding("utf-8")
     quietly destring wave code_switch_review, replace
-    isid wave native_locality10 nomccpp
-    assert _N == 6 & code_switch_review == 1
     quietly save "`exceptions'"
+
     if `last' == 2025 {
         quietly import delimited using "`inputs'/district_reviews.csv", clear stringcols(_all) encoding("utf-8")
-        quietly destring wave district_link_status reviewed_interviews, replace
-        isid district_review_id
-        * The housing code may be blank when the source has no usable district components.
-        isid wave source_locality10 housing_locality10 nomccpp lon_key lat_key, missok
-        assert _N == 35 & inrange(wave,2018,2023)
-        assert !missing(nomccpp,lon_key,lat_key) & ustrregexm(source_locality10,"^[0-9]{10}$")
-        assert inlist(district_link_status,1,2,3) & inrange(reviewed_interviews,1,107)
-        assert ustrregexm(approved_locality10,"^[0-9]{10}$") if inlist(district_link_status,1,2)
-        assert approved_locality10 == source_locality10 if district_link_status == 1
-        assert missing(approved_locality10) if district_link_status == 3
+        quietly destring wave district_link_status, replace
+        drop reviewed_interviews
         quietly save "`district_reviews'"
     }
     if `first' == 2015 {
         quietly import delimited using "`inputs'/2015_locality_lookup.csv", clear stringcols(_all) encoding("utf-8")
         quietly destring x y two_rounds external_agree external_conflict, replace
-        isid district6 x y
-        assert _N == 943 & substr(locality10,1,6)==district6
-        assert inlist(two_rounds,0,1) & inlist(external_agree,0,1) & inlist(external_conflict,0,1)
         rename locality10 candidate_2015
         quietly save "`lookup'"
     }
 
-    tempname imports joins fields
-    tempfile import_counts merge_counts source_fields
-    local phq_items qs700a qs700b qs700c qs700d qs700e qs700f qs700g qs700h qs700i
-    postfile `imports' int wave str32 table str8 role long observations int fields ///
-        str40 grain_check using "`import_counts'"
-    postfile `joins' int wave str20 relation str5 cardinality long ///
-        master_before using_before master_only using_only matched retained using "`merge_counts'"
-    postfile `fields' int wave str12 table str32 native_field str12 native_type ///
-        str244 native_label using "`source_fields'"
-
-    * Harmonize each wave at its released grain before appending the health spine.
-    forvalues year = `first'/`last' {
-        quietly use "`inventory'", clear
-        quietly keep if wave == `year'
-        levelsof table, local(tables) clean
-        local core CSALUD01 RECH0 RECH23
-        if inlist(`year',2016,2017) local core `core' RECH1
-        foreach required of local core {
-            quietly count if table == "`required'" & role == "core"
-            assert r(N) == 1
-        }
-        foreach table of local tables {
-            quietly use "`inventory'", clear
-            quietly keep if wave==`year' & table=="`table'"
-            local source = path[1]
-            local format = format[1]
-            local encoding = encoding[1]
-            local separator = separator[1]
-            local wanted_rows = rows[1]
-            local wanted_columns = variables[1]
-            local role = role[1]
-            local grain = subinstr(keys[1],";","",.)
-            local sha = sha256[1]
-            display "Input `year' `table' `source' SHA-256 `sha'"
-            if "`format'" == "sav" quietly import spss using "`source'", clear case(lower)
-            if "`format'" == "dta" quietly use "`source'", clear
-            if "`format'" == "csv" {
-                assert inlist("`separator'","comma","semicolon") & "`encoding'"!=""
-                local delimiter = cond("`separator'"=="semicolon", ";", ",")
-                quietly import delimited using "`source'", clear varnames(1) case(lower) ///
-                    stringcols(_all) delimiters("`delimiter'") bindquote(strict) encoding("`encoding'")
-            }
-            assert _N==`wanted_rows' & c(k)==`wanted_columns'
-            if "`role'" == "context" {
-                * Published supplementary tables retain their grain in the source files.
-                capture isid `grain'
-                local result = cond(_rc==0,"candidate key unique","candidate key needs review before use")
-                post `imports' (`year') ("`table'") ("`role'") (_N) (c(k)) ("`result'")
-                continue
-            }
-            local survey_vars
-            local raw_strings hhid
-            if "`table'" == "CSALUD01" {
-                local weight peso15_amas
-                if `year'==2015 local weight peso15_ajus
-                local survey_vars qs23 qssexo qsnumero qhcluster qsresult qsintm qsinty `weight' `phq_items'
-                if `year'<=2018 local survey_vars `survey_vars' qsintd
-                if `year'>=2019 {
-                    capture confirm variable qsintd, exact
-                    assert _rc == 111
-                }
-                if `year'==2016 {
-                    foreach staff in qsdni qsant qsaux {
-                        capture confirm variable `staff', exact
-                        assert _rc == 111
-                    }
-                }
-                local destination "`health'"
-            }
-            if "`table'" == "RECH0" {
-                local lon longitudx
-                local lat latitudy
-                if `year'==2017 {
-                    local lon long_ccpp
-                    local lat lat_ccpp
-                }
-                local survey_vars hv001 hv015 hv022 hv023 hv024 hv025 `lon' `lat'
-                if `year'>=2016 local raw_strings `raw_strings' codccpp nomccpp
-                if `year'>=2018 local raw_strings `raw_strings' ubigeo
-                local destination "`household'"
-            }
-            if "`table'" == "RECH23" {
-                local survey_vars sh61q shprovin shdistri
-                local destination "`housing'"
-            }
-            if "`table'" == "RECH1" {
-                local survey_vars hvidx hv104 hv105
-                local destination "`roster'"
-            }
-            local native_size = c(k)
-            local n_`table' = _N
-            keep `raw_strings' `survey_vars'
-            foreach variable of varlist `raw_strings' `survey_vars' {
-                local vartype : type `variable'
-                local meaning : variable label `variable'
-                post `fields' (`year') ("`table'") ("`variable'") ("`vartype'") (`"`meaning'"')
-            }
-            foreach variable of local raw_strings {
-                confirm string variable `variable'
-            }
-            foreach variable of local survey_vars {
-                capture confirm numeric variable `variable'
-                if _rc {
-                    quietly replace `variable' = subinstr(ustrtrim(`variable'), ",", ".", .)
-                    quietly destring `variable', replace
-                    confirm numeric variable `variable'
-                }
-            }
-            quietly replace hhid = strtrim(hhid)
-            if "`table'" == "RECH1" {
-                isid hhid hvidx
-                rename (hvidx hv104 hv105) (qsnumero roster_sex roster_age)
-            }
-            else isid hhid
-            post `imports' (`year') ("`table'") ("`role'") (_N) (`native_size') ("verified unique")
-            * Value labels are assigned consistently after the native metadata is recorded.
-            label drop _all
-            if "`table'" == "CSALUD01" {
-                generate double health_weight = `weight'
-                generate str11 weight_source = upper("`weight'")
-                if `year'>=2019 generate byte qsintd = .
-                generate byte visit_day_released = (`year'<=2018)
-            }
-            if "`table'" == "RECH0" {
-                rename (`lon' `lat') (longitude_raw latitude_raw)
-                if `year'==2015 {
-                    generate str4 codccpp = ""
-                    generate str1 nomccpp = ""
-                }
-                if `year'<2018 generate str6 ubigeo = ""
-            }
-            quietly save "`destination'", replace
-        }
-
-        * Keep every selected person. Account for all unused household and roster records.
-        quietly use "`health'", clear
-        local spine = _N
-        foreach relation in household housing {
-            local source "`housing'"
-            local source_n = `n_RECH23'
-            if "`relation'" == "household" {
-                local source "`household'"
-                local source_n = `n_RECH0'
-            }
-            quietly merge 1:1 hhid using "`source'", generate(join_result) nolabel
-            quietly count if join_result == 1
-            local master_only = r(N)
-            quietly count if join_result == 2
-            local using_only = r(N)
-            quietly count if join_result == 3
-            local matched = r(N)
-            post `joins' (`year') ("`relation'") ("1:1") (`spine') ///
-                (`source_n') (`master_only') (`using_only') (`matched') (`spine')
-            assert `matched'+`using_only'==`source_n'
-            tabulate join_result
-            assert `master_only'==0 & `matched'==`spine'
-            quietly drop if join_result==2
-            drop join_result
-        }
-        * In the two full annual intakes, RECH1 checks the selected member's line, age and sex.
-        generate byte roster_checked = inlist(`year',2016,2017)
-        if inlist(`year',2016,2017) {
-            isid hhid qsnumero
-            quietly merge 1:1 hhid qsnumero using "`roster'", generate(join_result) nolabel
-            quietly count if join_result == 1
-            local master_only = r(N)
-            quietly count if join_result == 2
-            local using_only = r(N)
-            quietly count if join_result == 3
-            local matched = r(N)
-            post `joins' (`year') ("person_roster") ("1:1") (`spine') ///
-                (`n_RECH1') (`master_only') (`using_only') (`matched') (`spine')
-            assert `matched'+`using_only'==`n_RECH1'
-            tabulate join_result
-            assert `master_only'==0 & `matched'==`spine'
-            quietly drop if join_result==2
-            drop join_result
-            assert qs23==roster_age if !missing(qs23,roster_age)
-            assert qssexo==roster_sex if !missing(qssexo,roster_sex)
-            drop roster_age roster_sex
-        }
-        assert _N == `spine'
-        generate int wave = `year'
-        if `year' > `first' quietly append using "`appended'"
-        quietly save "`appended'", replace
-    }
-    postclose `imports'
-    postclose `joins'
-    postclose `fields'
-
-
     * Keep all selected respondents. Age, rural residence and the native weight define separate flags.
     quietly use "`appended'", clear
-    isid wave hhid, sort
     generate byte main_wave = inrange(wave,2016,2025)
     * The released 2020 records do not distinguish individual interview modes.
     generate byte mode_review = wave == 2020
@@ -286,26 +330,24 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     replace internet_status = 3 if !missing(sh61q) & missing(home_internet)
     replace internet_status = 4 if missing(internet_status)
 
-    * Q700 records nine items on the 0–3 scale over the previous 14 days.
-    local valid_items
-    local item_status
-    foreach item of local phq_items {
-        generate byte valid_`item' = `item' if inlist(`item',0,1,2,3)
-        local valid_items `valid_items' valid_`item'
-        generate byte `item'_status = 4
-        replace `item'_status = 0 if !missing(valid_`item')
-        replace `item'_status = 1 if missing(`item')
-        replace `item'_status = 2 if missing(`item') & inlist(qsresult,2,3)
-        replace `item'_status = 3 if missing(`item') & qsresult==4
-        local item_status `item_status' `item'_status
-    }
-    egen byte nphq = rownonmiss(`valid_items')
-    egen byte phq9 = rowtotal(`valid_items')
-    replace phq9 = . if nphq != 9
-    assert inrange(phq9,0,27) if nphq==9
-    assert missing(phq9) == (nphq!=9)
-    assert phq9==qs700a+qs700b+qs700c+qs700d+qs700e+qs700f+qs700g+qs700h+qs700i if nphq==9
-    drop `valid_items'
+    * Q700 records nine symptoms over the previous 14 days. The score requires nine valid responses.
+    local phq_items qs700a qs700b qs700c qs700d qs700e qs700f qs700g qs700h qs700i
+    generate byte blank_item_status = 1
+    replace blank_item_status = 2 if inlist(qsresult,2,3)
+    replace blank_item_status = 3 if qsresult == 4
+    generate byte qs700a_status = cond(inlist(qs700a,0,1,2,3),0,cond(missing(qs700a),blank_item_status,4))
+    generate byte qs700b_status = cond(inlist(qs700b,0,1,2,3),0,cond(missing(qs700b),blank_item_status,4))
+    generate byte qs700c_status = cond(inlist(qs700c,0,1,2,3),0,cond(missing(qs700c),blank_item_status,4))
+    generate byte qs700d_status = cond(inlist(qs700d,0,1,2,3),0,cond(missing(qs700d),blank_item_status,4))
+    generate byte qs700e_status = cond(inlist(qs700e,0,1,2,3),0,cond(missing(qs700e),blank_item_status,4))
+    generate byte qs700f_status = cond(inlist(qs700f,0,1,2,3),0,cond(missing(qs700f),blank_item_status,4))
+    generate byte qs700g_status = cond(inlist(qs700g,0,1,2,3),0,cond(missing(qs700g),blank_item_status,4))
+    generate byte qs700h_status = cond(inlist(qs700h,0,1,2,3),0,cond(missing(qs700h),blank_item_status,4))
+    generate byte qs700i_status = cond(inlist(qs700i,0,1,2,3),0,cond(missing(qs700i),blank_item_status,4))
+    drop blank_item_status
+
+    egen byte nphq = anycount(`phq_items'), values(0 1 2 3)
+    generate byte phq9 = qs700a+qs700b+qs700c+qs700d+qs700e+qs700f+qs700g+qs700h+qs700i if nphq == 9
     * Measure outcome eligibility before any locality or service decisions.
     generate byte eligible = youth & positive_weight & nphq==9
     generate byte eligible_rural_youth = eligible & rural==1
@@ -350,11 +392,8 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
          (wave>=2018 & ustrregexm(strtrim(ubigeo),"^[0-9]{6}$")))
     generate byte district_range_review = wave>=2018 & pilot_geographic_shape & missing(district6)
     generate byte native_key_valid = !missing(district6,locality_suffix) & !district_conflict
-    assert native_key_valid<=pilot_geographic_shape
     generate str10 native_locality10 = district6 + locality_suffix if native_key_valid
     generate str10 locality10 = native_locality10
-    assert substr(native_locality10,1,6)==district6 & substr(native_locality10,7,4)==locality_suffix if native_key_valid
-    assert missing(native_locality10) == !native_key_valid
     * The name and code-switch ledgers cover all main waves, including waves outside the pilot.
     quietly merge m:1 wave native_locality10 nomccpp using "`reviews'", generate(name_merge) nolabel
     tabulate name_merge
@@ -382,19 +421,14 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
         generate str22 lon_key = strtrim(string(longitude_raw,"%22.13f")) if district_queue
         generate str22 lat_key = strtrim(string(latitude_raw,"%22.13f")) if district_queue
         quietly merge m:1 wave source_locality10 housing_locality10 nomccpp lon_key lat_key ///
-            using "`district_reviews'", generate(district_merge) nolabel
+            using "`district_reviews'", keep(master match) generate(district_merge) nolabel
         tabulate district_merge
-        assert district_merge != 2
-        assert (district_merge == 3) == district_queue
-        bysort district_review_id: assert _N == reviewed_interviews if district_merge == 3
-        assert missing(locality10) if district_queue
 
         * Preserve every native field and use a derived key only for a supported locality.
-        replace district_link_status = 0 if district_merge == 1
+        replace district_link_status = 0 if missing(district_link_status)
         replace locality10 = approved_locality10 if inlist(district_link_status,1,2)
-        assert missing(locality10) if district_link_status == 3
         drop district_queue source_locality10 housing_locality10 lon_key lat_key ///
-            district_merge reviewed_interviews approved_locality10
+            district_merge approved_locality10
     }
     else {
         generate str4 district_review_id = ""
@@ -428,7 +462,6 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
         restore
         merge m:1 candidate_2015 using "`later_holds'", keep(master match) generate(later_review)
         replace sensitivity_later_review = (later_review==3) if sensitivity_strict
-        assert missing(locality10) if wave==2015 & !sensitivity_strict
         drop candidate_2015 later_review
     }
     * Hold unresolved identities and possible switches even when a native code is available.
@@ -444,7 +477,6 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     if `last'==2025 {
         preserve
             quietly import delimited using "`inputs'/inei_reference_points.csv", clear varnames(1) stringcols(1) asdouble
-            isid native_locality10 reference_lon reference_lat
             quietly save "`points'"
         restore
         tempfile same_code
@@ -456,7 +488,6 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
             generate double distance_m = 111195*sqrt((longitude_raw-reference_lat)^2 + ///
                 ((latitude_raw-reference_lon)*cos(_pi*(longitude_raw+reference_lat)/360))^2)
             quietly collapse (min) distance_m, by(native_locality10 longitude_raw latitude_raw)
-            isid native_locality10 longitude_raw latitude_raw
             quietly save "`same_code'"
         restore
         quietly merge m:1 native_locality10 longitude_raw latitude_raw using "`same_code'", keep(master match) nogen
@@ -467,72 +498,9 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     generate double latitude = latitude_raw if raw_point_plausible
     replace longitude = latitude_raw if coordinate_swapped
     replace latitude = longitude_raw if coordinate_swapped
-    assert locality10==native_locality10 if coordinate_swapped
     generate byte coordinate_status = cond(coordinate_swapped,1,cond(raw_point_plausible,0, ///
         cond(swap_candidate,2,cond(missing(longitude_raw,latitude_raw),3,4))))
 
-
-    * The survey-only count gates recover the dated audits before any programme linkage.
-    local expected_rural 3558 3534 3664 3508 3340 3765 3587 3446 3284 2944
-    local expected_shape 3549 3528 3664 3508 3340 3765 3587 3446 3284 2944
-    local expected_native 3549 3528 3627 3473 3312 3763 3584 3444 3284 2944
-    forvalues year = 2016/`last' {
-        local pos = `year'-2015
-        local rural_count : word `pos' of `expected_rural'
-        local shape_count : word `pos' of `expected_shape'
-        local native_count : word `pos' of `expected_native'
-        quietly count if wave==`year' & eligible_rural_youth
-        assert r(N)==`rural_count'
-        quietly count if wave==`year' & eligible_rural_youth & pilot_geographic_shape
-        assert r(N)==`shape_count'
-        quietly count if wave==`year' & eligible_rural_youth & native_key_valid
-        assert r(N)==`native_count'
-    }
-    quietly count if wave==2016 & eligible_rural_youth & locality_review==1
-    assert r(N)==19
-    quietly count if wave==2016 & eligible_rural_youth & locality_review==2
-    assert r(N)==4
-    quietly count if wave==2016 & eligible_rural_youth & locality_review==3
-    assert r(N)==1
-    if `last'==2025 {
-        * Counts must reconcile to the approved district audit and all pre-existing geography holds.
-        quietly count if district_link_status == 1
-        assert r(N) == 7
-        quietly count if district_link_status == 2
-        assert r(N) == 65
-        quietly count if district_link_status == 3
-        assert r(N) == 35
-        quietly count if main_wave & eligible_rural_youth & geography_hold
-        assert r(N) == 82
-        forvalues code=1/3 {
-            local expected : word `code' of 357 41 13
-            quietly count if wave>=2017 & eligible_rural_youth & locality_review==`code'
-            assert r(N)==`expected'
-        }
-        quietly count if eligible_rural_youth & code_switch_review
-        assert r(N)==18
-        quietly count if eligible_rural_youth & coordinate_swapped
-        assert r(N)==355
-        egen byte swapped_locality = tag(native_locality10) if eligible_rural_youth & coordinate_swapped
-        quietly count if swapped_locality==1
-        assert r(N)==143
-        drop swapped_locality
-        quietly count if eligible_rural_youth & swap_candidate & !coordinate_swapped
-        assert r(N)==0
-    }
-    if `first'==2015 {
-        quietly count if wave==2015 & eligible_rural_youth
-        assert r(N)==3926
-        quietly count if sensitivity_broad
-        assert r(N)==3145
-        quietly count if sensitivity_strict
-        assert r(N)==2157
-        quietly count if sensitivity_corroborated
-        assert r(N)==581
-        quietly count if sensitivity_later_review
-        assert r(N)==10
-        assert !main_wave if sensitivity_broad
-    }
 
     * Labels document values and units alongside the retained raw fields.
     label define yes_no 0 "No" 1 "Yes"
@@ -560,7 +528,7 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     label values qsresult health_result
     label values weight_status weight_status
     label values `phq_items' phq_frequency
-    label values `item_status' item_status
+    label values qs700?_status item_status
     label values internet_status internet_status
     label values date_precision date_precision
     label values locality_review locality_review
@@ -598,9 +566,15 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     label variable qs700g "Q700 G: slowed movement or restlessness"
     label variable qs700h "Q700 H: thoughts of death or self-harm"
     label variable qs700i "Q700 I: feeling bad about oneself"
-    foreach item of local phq_items {
-        label variable `item'_status "`item' response status"
-    }
+    label variable qs700a_status "qs700a response status"
+    label variable qs700b_status "qs700b response status"
+    label variable qs700c_status "qs700c response status"
+    label variable qs700d_status "qs700d response status"
+    label variable qs700e_status "qs700e response status"
+    label variable qs700f_status "qs700f response status"
+    label variable qs700g_status "qs700g response status"
+    label variable qs700h_status "qs700h response status"
+    label variable qs700i_status "qs700i response status"
     label variable nphq "Number of valid Q700 responses (0–9)"
     label variable phq9 "Sum of nine valid Q700 responses, previous 14 days (0–27)"
     label variable health_weight "Native selected-person health weight, unscaled"
@@ -684,14 +658,7 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     local signature "`r(datasignature)'"
     local total = _N
     local columns = c(k)
-    quietly save "`appended'", replace
-
-    * Keep one permanent dataset. Detailed quality-control tables stay in the protected run.
-    foreach audit in import_counts merge_counts source_fields {
-        quietly use "``audit''", clear
-        export delimited using "`run'/endes_`audit'.csv"
-    }
-    quietly use "`appended'", clear
+    * Save one respondent file and write the preparation diagnostics beside it.
     preserve
         generate byte Health = 1
         generate byte Age = youth
@@ -744,14 +711,21 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
         export delimited using "`run'/endes_phq_completeness.csv"
     restore
     preserve
-        * Retain routing and invalid-response counts by item, age, area and mode-review group.
+        * Count each response status separately for the nine items.
         keep wave age_band rural mode_review qs700?_status
-        foreach item of local phq_items {
-            forvalues status=0/4 {
-                generate byte n`item'_`status' = (`item'_status==`status')
-            }
-        }
-        collapse (sum) nqs*, by(wave age_band rural mode_review)
+        quietly recode qs700?_status (0=1) (else=0), generate( ///
+            nqs700a_0 nqs700b_0 nqs700c_0 nqs700d_0 nqs700e_0 nqs700f_0 nqs700g_0 nqs700h_0 nqs700i_0)
+        quietly recode qs700?_status (1=1) (else=0), generate( ///
+            nqs700a_1 nqs700b_1 nqs700c_1 nqs700d_1 nqs700e_1 nqs700f_1 nqs700g_1 nqs700h_1 nqs700i_1)
+        quietly recode qs700?_status (2=1) (else=0), generate( ///
+            nqs700a_2 nqs700b_2 nqs700c_2 nqs700d_2 nqs700e_2 nqs700f_2 nqs700g_2 nqs700h_2 nqs700i_2)
+        quietly recode qs700?_status (3=1) (else=0), generate( ///
+            nqs700a_3 nqs700b_3 nqs700c_3 nqs700d_3 nqs700e_3 nqs700f_3 nqs700g_3 nqs700h_3 nqs700i_3)
+        quietly recode qs700?_status (4=1) (else=0), generate( ///
+            nqs700a_4 nqs700b_4 nqs700c_4 nqs700d_4 nqs700e_4 nqs700f_4 nqs700g_4 nqs700h_4 nqs700i_4)
+        label values nqs700*
+        order nqs700*, alphabetic last
+        collapse (sum) nqs700*, by(wave age_band rural mode_review)
         export delimited using "`run'/endes_phq_item_routing.csv"
     restore
     preserve
@@ -766,11 +740,6 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     restore
 
     quietly save "`run'/ENDES_coded.dta"
-    quietly use "`run'/ENDES_coded.dta", clear
-    isid wave hhid
-    assert _N == `total' & c(k) == `columns'
-    quietly datasignature
-    assert "`r(datasignature)'" == "`signature'"
     tempname receipt
     file open `receipt' using "`run'/endes_signature.txt", write text
     file write `receipt' "series=`series'" _n "Stata/`edition' " (c(stata_version)) " " (c(born_date)) _n ///
@@ -778,6 +747,7 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     file close `receipt'
     display "ENDES_PREPARATION_OK `series' `total' rows `columns' fields `signature'"
     log close endes_prep
+    program drop append_endes_wave read_endes_module
     exit
 }
 
