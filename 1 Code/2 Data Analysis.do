@@ -1,6 +1,7 @@
 version 16.0
 args inputs run series
 
+* Reconcile the frozen Stage 02 definitions. The current survey build has its own diagnostics.
 log using "`run'/analysis.log", text name(descriptive)
 local edition = cond(c(MP), "MP", cond(c(SE), "SE", "BE"))
 display as text "Stata/`edition' " c(stata_version) ", " c(processors) " processor(s)"
@@ -75,6 +76,7 @@ quietly save "`reference'"
 
 quietly use "`counts'", clear
 quietly keep wave `metrics'
+* The added 2019 and 2023 rounds have observed counts and no saved pilot benchmarks.
 quietly merge 1:1 wave using "`reference'", keep(master match) nogen
 tempfile recon_frame
 tempname reconciliation
@@ -96,6 +98,7 @@ tabulate status
 export delimited using "`run'/pilot_reconciliation.csv"
 
 use "`panel'", clear
+* Describe missingness before applying the PHQ completeness and weight restrictions.
 keep if youth
 generate byte phq_incomplete = nphq != 9
 generate byte phq_no_valid_items = nphq == 0
@@ -110,6 +113,7 @@ export delimited using "`run'/missingness.csv", nolabel
 
 quietly use "`panel'", clear
 quietly keep if youth
+* Expand only the diagnostic copy to one row per symptom item and retain the original response codes.
 keep wave hhid rural roster_group qs700a qs700b qs700c qs700d qs700e qs700f qs700g qs700h qs700i
 quietly expand 9
 quietly bysort wave hhid: generate byte item_number = _n
@@ -135,6 +139,7 @@ export delimited using "`run'/visit_month_counts.csv", nolabel
 
 quietly use "`panel'", clear
 quietly keep if rural_youth & locality_key_valid
+* Reduce to one row per locality and wave so geographic overlap counts localities.
 quietly collapse (count) people=eligible (max) discordance=name_disagree, ///
     by(locality10 roster_designated wave)
 isid wave locality10
@@ -175,6 +180,7 @@ export delimited using "`run'/locality_pair_overlap.csv"
 
 use "`panel'", clear
 keep if rural_youth & locality_key_valid & roster_designated == 1
+* Verify whether the same designated localities appear in the earliest and latest two waves.
 generate byte early = wave <= 2018 if inlist(wave,2017,2018,2024,2025)
 quietly bysort locality10: egen byte has_early = max(early == 1)
 quietly bysort locality10: egen byte has_late = max(early == 0)
@@ -187,6 +193,7 @@ quietly egen byte discordant_shared = tag(project early locality10) if shared_pe
 collapse (sum) period_locality shared_locality shared_person discordant_shared, by(project early)
 export delimited using "`run'/locality_block_overlap.csv"
 
+* Regional calendar anchors measure timing support. These dates do not identify facility activation.
 import delimited using "`inputs'/regional_dates.csv", clear varnames(1) stringcols(_all)
 isid project
 assert _N == 10
@@ -237,6 +244,7 @@ collapse (sum) people localities=locality_tag psus=psu_tag, ///
 format visit_month launch_month %tm
 export delimited using "`run'/regional_calendar_support.csv"
 
+* Under each calendar rule, count which localities contribute interviews on both sides.
 postfile `repeated' str32 project str18 rule long pre_people post_people window_people ///
     unknown_month pre_ccpp post_ccpp ccpp_both people_pre_both people_post_both using "`pre_post'"
 foreach rule in pilot_period bounded_period earlier_period {

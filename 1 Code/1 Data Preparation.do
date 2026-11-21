@@ -1,7 +1,7 @@
 version 16.0
 args inputs run series
 
-* ENDES survey preparation. Each row represents a selected person in one survey wave.
+* ENDES survey preparation. Keep the repeated cross-section at selected person by wave.
 if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     local dropbox = ustrlower(subinstr("${econ_dropbox}", char(92), "/", .))
     local output = ustrlower(subinstr("`run'", char(92), "/", .))
@@ -19,7 +19,8 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     if "`series'" == "endes_pilot" local last = 2017
     if "`series'" == "endes_with_2015" local first = 2015
 
-    tempfile inventory health household housing roster appended reviews exceptions lookup points
+    * Read the hashed inventory before importing any survey module.
+    tempfile inventory health household housing roster appended reviews exceptions lookup points district_reviews
     quietly import delimited using "`inputs'/modules.csv", clear varnames(1) stringcols(_all) encoding("utf-8")
     quietly destring wave rows variables, replace
     isid wave table
@@ -33,7 +34,7 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     copy "`inputs'/input_provenance.csv" "`run'/endes_evidence.csv"
     quietly save "`inventory'"
 
-    * Attach only the reviewed survey-side flags. Programme designation is a later block.
+    * Load the approved survey geography evidence. Programme designation belongs to the broadband data.
     quietly import delimited using "`inputs'/locality_reviews.csv", clear stringcols(_all) encoding("utf-8")
     quietly destring wave, replace
     isid wave native_locality10 nomccpp
@@ -46,6 +47,20 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     isid wave native_locality10 nomccpp
     assert _N == 6 & code_switch_review == 1
     quietly save "`exceptions'"
+    if `last' == 2025 {
+        quietly import delimited using "`inputs'/district_reviews.csv", clear stringcols(_all) encoding("utf-8")
+        quietly destring wave district_link_status reviewed_interviews, replace
+        isid district_review_id
+        * The housing code may be blank when the source has no usable district components.
+        isid wave source_locality10 housing_locality10 nomccpp lon_key lat_key, missok
+        assert _N == 35 & inrange(wave,2018,2023)
+        assert !missing(nomccpp,lon_key,lat_key) & ustrregexm(source_locality10,"^[0-9]{10}$")
+        assert inlist(district_link_status,1,2,3) & inrange(reviewed_interviews,1,107)
+        assert ustrregexm(approved_locality10,"^[0-9]{10}$") if inlist(district_link_status,1,2)
+        assert approved_locality10 == source_locality10 if district_link_status == 1
+        assert missing(approved_locality10) if district_link_status == 3
+        quietly save "`district_reviews'"
+    }
     if `first' == 2015 {
         quietly import delimited using "`inputs'/2015_locality_lookup.csv", clear stringcols(_all) encoding("utf-8")
         quietly destring x y two_rounds external_agree external_conflict, replace
@@ -66,6 +81,7 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     postfile `fields' int wave str12 table str32 native_field str12 native_type ///
         str244 native_label using "`source_fields'"
 
+    * Harmonize each wave at its released grain before appending the health spine.
     forvalues year = `first'/`last' {
         quietly use "`inventory'", clear
         quietly keep if wave == `year'
@@ -214,6 +230,7 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
             quietly drop if join_result==2
             drop join_result
         }
+        * In the two full annual intakes, RECH1 checks the selected member's line, age and sex.
         generate byte roster_checked = inlist(`year',2016,2017)
         if inlist(`year',2016,2017) {
             isid hhid qsnumero
@@ -245,10 +262,11 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     postclose `fields'
 
 
-    * Align the survey definitions at respondent-wave grain.
+    * Keep all selected respondents. Age, rural residence and the native weight define separate flags.
     quietly use "`appended'", clear
     isid wave hhid, sort
     generate byte main_wave = inrange(wave,2016,2025)
+    * The released 2020 records do not distinguish individual interview modes.
     generate byte mode_review = wave == 2020
     generate byte youth = inrange(qs23,15,29) & qs23==floor(qs23)
     generate byte age_band = .
@@ -288,6 +306,7 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     assert missing(phq9) == (nphq!=9)
     assert phq9==qs700a+qs700b+qs700c+qs700d+qs700e+qs700f+qs700g+qs700h+qs700i if nphq==9
     drop `valid_items'
+    * Measure outcome eligibility before any locality or service decisions.
     generate byte eligible = youth & positive_weight & nphq==9
     generate byte eligible_rural_youth = eligible & rural==1
 
@@ -315,7 +334,7 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     generate long wave_stratum_id = 100000*wave+hv022 if inrange(hv022,1,99999) & hv022==floor(hv022)
     generate byte survey_design_missing = missing(wave_psu_id,wave_stratum_id)
 
-    * Keep the released district and settlement fields. The suffix is never inferred from names.
+    * Retain the native codes and record why they fail before applying any reviewed assignment.
     generate str6 district_components = string(hv024,"%02.0f") + string(shprovin,"%02.0f") + ///
         string(shdistri,"%02.0f") if inrange(hv024,1,25) & inrange(shprovin,1,98) & ///
         inrange(shdistri,1,98) & hv024==floor(hv024) & shprovin==floor(shprovin) & shdistri==floor(shdistri)
@@ -336,15 +355,53 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     generate str10 locality10 = native_locality10
     assert substr(native_locality10,1,6)==district6 & substr(native_locality10,7,4)==locality_suffix if native_key_valid
     assert missing(native_locality10) == !native_key_valid
-    merge m:1 wave native_locality10 nomccpp using "`reviews'", keep(master match) nogen
+    * The name and code-switch ledgers cover all main waves, including waves outside the pilot.
+    quietly merge m:1 wave native_locality10 nomccpp using "`reviews'", generate(name_merge) nolabel
+    tabulate name_merge
+    drop if name_merge == 2
+    drop name_merge
     generate byte locality_review = 0
     replace locality_review = 1 if disposition=="verified"
     replace locality_review = 2 if disposition=="point_review"
     replace locality_review = 3 if disposition=="identity_unresolved"
     drop disposition
-    merge m:1 wave native_locality10 nomccpp using "`exceptions'", keep(master match) nogen
+    quietly merge m:1 wave native_locality10 nomccpp using "`exceptions'", generate(switch_merge) nolabel
+    tabulate switch_merge
+    drop if switch_merge == 2
+    drop switch_merge
     replace code_switch_review = 0 if missing(code_switch_review)
     generate byte service_site_review = locality_review==2
+
+    * Resolve the separately reviewed district-code flags for the 2016–2025 series.
+    if `last' == 2025 {
+        * Use the exact released wave, name, codes and point from each reviewed survey record.
+        * Limit the join to the audited rural youth. Nearby or similarly named records are outside its scope.
+        generate byte district_queue = main_wave & eligible_rural_youth & pilot_geographic_shape & !native_key_valid
+        generate str10 source_locality10 = ubigeo + codccpp if district_queue
+        generate str10 housing_locality10 = district_components + codccpp if district_queue & !missing(district_components)
+        generate str22 lon_key = strtrim(string(longitude_raw,"%22.13f")) if district_queue
+        generate str22 lat_key = strtrim(string(latitude_raw,"%22.13f")) if district_queue
+        quietly merge m:1 wave source_locality10 housing_locality10 nomccpp lon_key lat_key ///
+            using "`district_reviews'", generate(district_merge) nolabel
+        tabulate district_merge
+        assert district_merge != 2
+        assert (district_merge == 3) == district_queue
+        bysort district_review_id: assert _N == reviewed_interviews if district_merge == 3
+        assert missing(locality10) if district_queue
+
+        * Preserve every native field and use a derived key only for a supported locality.
+        replace district_link_status = 0 if district_merge == 1
+        replace locality10 = approved_locality10 if inlist(district_link_status,1,2)
+        assert missing(locality10) if district_link_status == 3
+        drop district_queue source_locality10 housing_locality10 lon_key lat_key ///
+            district_merge reviewed_interviews approved_locality10
+    }
+    else {
+        generate str4 district_review_id = ""
+        generate byte district_link_status = 0
+    }
+
+    * The 2015 sensitivity sample requires the same locality point in two reference rounds.
 
     generate byte sensitivity_broad = 0
     generate byte sensitivity_strict = 0
@@ -354,6 +411,7 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
         generate long x = round(longitude_raw*1000000) if wave==2015
         generate long y = round(latitude_raw*1000000) if wave==2015
         merge m:1 district6 x y using "`lookup'", keep(master match) generate(link2015)
+        tabulate link2015 if wave==2015
         replace sensitivity_broad = 1 if wave==2015 & eligible_rural_youth & link2015==3
         replace sensitivity_strict = 1 if sensitivity_broad & two_rounds==1 & external_conflict==0
         replace sensitivity_corroborated = 1 if sensitivity_strict & external_agree==1
@@ -373,6 +431,7 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
         assert missing(locality10) if wave==2015 & !sensitivity_strict
         drop candidate_2015 later_review
     }
+    * Hold unresolved identities and possible switches even when a native code is available.
     generate byte geography_hold = missing(locality10) | locality_review==3 | code_switch_review==1
     generate byte locality_usable = !geography_hold
     generate byte field_staff_removed = wave==2016
@@ -436,6 +495,15 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     quietly count if wave==2016 & eligible_rural_youth & locality_review==3
     assert r(N)==1
     if `last'==2025 {
+        * Counts must reconcile to the approved district audit and all pre-existing geography holds.
+        quietly count if district_link_status == 1
+        assert r(N) == 7
+        quietly count if district_link_status == 2
+        assert r(N) == 65
+        quietly count if district_link_status == 3
+        assert r(N) == 35
+        quietly count if main_wave & eligible_rural_youth & geography_hold
+        assert r(N) == 82
         forvalues code=1/3 {
             local expected : word `code' of 357 41 13
             quietly count if wave>=2017 & eligible_rural_youth & locality_review==`code'
@@ -482,6 +550,8 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     label define date_precision 0 "No usable calendar month" 1 "Month only" 2 "Day observed"
     label define locality_review 0 "No matched case in review ledger" 1 "Identity supported" ///
         2 "Identity supported, project-site review" 3 "Locality identity unresolved"
+    label define district_link_status 0 "Outside the district review" 1 "Released code corroborated" ///
+        2 "Approved statistical locality crosswalk" 3 "Exact locality unresolved"
     label define coordinate_status 0 "Published axes plausible" 1 "Swapped, same-code INEI reference within 1 m" ///
         2 "Swap candidate without reference confirmation" 3 "Source coordinate missing" 4 "Outside geographic range"
     label values age_band age_band
@@ -494,6 +564,7 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     label values internet_status internet_status
     label values date_precision date_precision
     label values locality_review locality_review
+    label values district_link_status district_link_status
     label values coordinate_status coordinate_status
     label values main_wave mode_review youth rural positive_weight health_complete home_internet ///
         eligible eligible_rural_youth visit_day_released date_anomaly day_anomaly next_calendar_year ///
@@ -565,7 +636,7 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     label variable ubigeo "Native district UBIGEO when released in RECH0"
     label variable district_components "District built from the three released numeric components"
     label variable district_conflict "Native UBIGEO and usable department/province/district components differ"
-    label variable district6 "Validated six-digit survey district"
+    label variable district6 "Six-digit survey district before adjudication, range checked"
     label variable codccpp "Original populated-centre suffix"
     label variable nomccpp "Original INEI populated-centre name"
     label variable locality_suffix "Validated four-digit populated-centre suffix"
@@ -573,10 +644,12 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     label variable district_range_review "Six-digit released UBIGEO has a component outside district code ranges"
     label variable native_key_valid "Released district and suffix form a consistent locality key"
     label variable native_locality10 "Ten-digit locality code from released survey fields"
-    label variable locality10 "Survey locality key, including approved strict 2015 sensitivity links"
+    label variable locality10 "Survey locality for linkage, including approved adjudication"
     label variable locality_usable "Code available and survey identity is usable for later linkage"
     label variable case_id "Case in the approved survey name adjudication ledger"
     label variable locality_review "Survey locality identity adjudication status"
+    label variable district_review_id "Case in the approved district-code audit"
+    label variable district_link_status "Survey district-code adjudication outcome"
     label variable geography_hold "Missing key, unresolved survey locality identity or possible code switch"
     label variable service_site_review "Known locality identity with unresolved project-site question"
     label variable code_switch_review "Additional reviewed geographic code could change designation"
@@ -596,7 +669,7 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     label variable field_staff_removed "Source is 2016 health copy with staff identifier fields omitted"
 
     order wave hhid qsnumero main_wave eligible eligible_rural_youth sensitivity_strict locality10 ///
-        geography_hold visit_month visit_date date_precision phq9 nphq health_weight
+        geography_hold district_link_status district_review_id visit_month visit_date date_precision phq9 nphq health_weight
     sort wave hhid
     compress
     label data "ENDES selected-person repeated cross-sections, survey preparation"
@@ -605,6 +678,7 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     char _dta[wave_key] "wave hhid; qsnumero records selected household member"
     char _dta[interview_mode] "2020 mixed mode. Respondent-level administration unverified."
     char _dta[locality_audit] "endes-pronatel-locality-adjudication-2026-11-20-v1"
+    if `last' == 2025 char _dta[district_code_audit] "endes-district-code-review-2026-11-21-v1"
     char _dta[design] "Native PSU, stratum and domain retained. No assumption of independence across waves."
     quietly datasignature
     local signature "`r(datasignature)'"
@@ -644,6 +718,9 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
         generate byte PSUDiffers = psu_disagreement==1
         generate byte DistrictConflict = Rural & district_conflict
         generate byte DistrictRangeReview = Rural & district_range_review
+        generate byte DistrictNativeConfirmed = district_link_status == 1
+        generate byte DistrictCrosswalk = district_link_status == 2
+        generate byte DistrictLinkUnresolved = district_link_status == 3
         generate byte SiteReview = Rural & service_site_review
         generate byte CodeReview = Rural & code_switch_review
         generate byte VerifiedIdentity = Rural & locality_review==1
@@ -651,12 +728,14 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
         generate byte AxesSwapped = Rural & coordinate_swapped
         collapse (sum) Health Age Weight PHQ Rural Geography Native PilotKeyShape UnknownAge UnknownArea ///
             UnknownInternet WeightMissing WeightNonpositive IncompletePHQ ModeReview DateDay DateMonthOnly ///
-            DateUnknown DateOutside InvalidDate NextYear DesignMissing PSUDiffers DistrictConflict DistrictRangeReview SiteReview ///
+            DateUnknown DateOutside InvalidDate NextYear DesignMissing PSUDiffers DistrictConflict DistrictRangeReview ///
+            DistrictNativeConfirmed DistrictCrosswalk DistrictLinkUnresolved SiteReview ///
             CodeReview VerifiedIdentity UnresolvedIdentity AxesSwapped sensitivity_broad sensitivity_strict ///
             sensitivity_corroborated sensitivity_later_review, by(wave)
         export delimited using "`run'/endes_wave_checks.csv"
     restore
     preserve
+        * Count every combination of native visit fields, including records without a usable date.
         contract wave qsinty qsintm qsintd date_precision health_complete mode_review, freq(interviews)
         export delimited using "`run'/endes_visit_calendar.csv"
     restore
@@ -665,6 +744,7 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
         export delimited using "`run'/endes_phq_completeness.csv"
     restore
     preserve
+        * Retain routing and invalid-response counts by item, age, area and mode-review group.
         keep wave age_band rural mode_review qs700?_status
         foreach item of local phq_items {
             forvalues status=0/4 {

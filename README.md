@@ -17,7 +17,7 @@ It hashes the raw files in place and writes only the verification manifest
 and GIS evidence extracts. Stata installs no packages for this block.
 
 ```powershell
-python "1 Code/extract/endes_inputs.py" "<project Dropbox>" "<approved locality audit>" "<new protected input directory>" --earlier "<2015 INEI source audit>" --crosswalk "<2015 locality evidence audit>"
+python "1 Code/extract/endes_inputs.py" "<project Dropbox>" "<approved locality audit>" "<new protected input directory>" --district-review "<private 09_case_adjudication.csv>" --earlier "<2015 INEI source audit>" --crosswalk "<2015 locality evidence audit>"
 ```
 
 From the checkout root, use one of these commands with its own fresh protected run directory.
@@ -30,7 +30,8 @@ do "1 Code/0 Master.do" "<protected input directory>" "<protected full path>" en
 
 `endes_pilot` checks 2016–2017, `endes` covers 2016–2025, and
 `endes_with_2015` adds the predesignated 2015 sensitivity wave to the same long
-file. Only the last series needs the two 2015 staging options. All three
+file. Supply the approved district ledger for `endes` and `endes_with_2015`.
+Only the last series needs the two 2015 staging options. All three
 write a single `ENDES_coded.dta` plus protected diagnostics. The working folder
 in the existing project Dropbox holds the encrypted copy of the validated
 canonical run. When evolving or testing only the preparation stage, load

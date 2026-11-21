@@ -9,6 +9,7 @@ import re
 
 MANIFEST = "ENDES-all-project-datasets-2026-11-20-v1.csv"
 MANIFEST_SHA = "d7d32b986b1f9468d588675d52e98d3447b242f7c4d98ee419f719c2d5b1b816"
+DISTRICT_REVIEW_SHA = "f2c0cdeadb70bf1002f807ffdbb011c06c0ab4fc47d606ebb740e7b9fdb699b7"
 EVIDENCE = {
     "locality_adjudication_ledger.csv": "bc705fccc5cecc834df4d3387574f12f0be4658714d2561b54223d7a697afd13",
     "additional_geographic_review_inputs.csv": "8d7c744c7ffd6cfb1e51d12554ceaec23e7e0e04e679933582d63cc0aecdc54e",
@@ -42,7 +43,7 @@ def verify(path, expected):
     return actual
 
 
-def stage(project, geographic_audit, earlier, crosswalk, output):
+def stage(project, geographic_audit, earlier, crosswalk, output, district_review=None):
     if output.is_relative_to(project):
         raise ValueError("Put the staging directory outside the shared Dropbox tree.")
     manifest = project / "3 Data" / "0 Support docs" / MANIFEST
@@ -107,6 +108,21 @@ def stage(project, geographic_audit, earlier, crosswalk, output):
         raise ValueError("Expected six wave-key instances of the four additional possible roster-code switches.")
     exceptions = [dict(wave=w, native_locality10=c, nomccpp=n, code_switch_review=1)
                   for w,c,n in sorted(review)]
+    if district_review is not None:
+        sha = verify(district_review, DISTRICT_REVIEW_SHA)
+        provenance.append(dict(role="district-code adjudication 2026-11-21",
+                               path=district_review.as_posix(), sha256=sha))
+        statuses = {"confirmed_native": 1, "supported_crosswalk": 2, "hold_code_conflict": 3,
+                    "hold_point_conflict": 3, "hold_alias_conflict": 3}
+        # Carry the exact published key strings and the approved decision, without audit notes.
+        district_rows = [
+            dict(wave=r["wave"], source_locality10=r["observed_code"],
+                 housing_locality10=r["housing_code"], nomccpp=r["name"],
+                 lon_key=r["x"], lat_key=r["y"], district_review_id=r["case"],
+                 district_link_status=statuses[r["disposition"]], reviewed_interviews=r["n"],
+                 approved_locality10=r["supported_code"])
+            for r in read_csv(district_review)
+        ]
 
     # Select independent INEI reference points used by the prior axis audit.
     cartography = {"INEI Census via IDEP", "INEI precensus via OSINFOR", "INEI SDMR"}
@@ -126,6 +142,8 @@ def stage(project, geographic_audit, earlier, crosswalk, output):
     write_csv(output / "modules.csv", sorted(modules, key=lambda r: (int(r["wave"]), r["table"])))
     write_csv(output / "locality_reviews.csv", decisions)
     write_csv(output / "geography_exceptions.csv", exceptions)
+    if district_review is not None:
+        write_csv(output / "district_reviews.csv", district_rows)
     write_csv(output / "inei_reference_points.csv", point_rows)
     if crosswalk is not None:
         linkage = list(read_csv(paths["2015_linkage_evidence_flags.csv"]))
@@ -141,9 +159,12 @@ if __name__ == "__main__":
     parser.add_argument("output", type=Path, help="New directory outside the shared Dropbox tree")
     parser.add_argument("--earlier", type=Path, help="2015 native module and receipt directory")
     parser.add_argument("--crosswalk", type=Path, help="2015 locality evidence directory")
+    parser.add_argument("--district-review", type=Path,
+                        help="Approved private district case ledger required for the 2016–2025 build")
     args = parser.parse_args()
     if bool(args.earlier) != bool(args.crosswalk):
         parser.error("--earlier and --crosswalk are both required for the 2015 sensitivity inputs")
     stage(args.project_dropbox.resolve(), args.locality_audit.resolve(),
           args.earlier.resolve() if args.earlier else None,
-          args.crosswalk.resolve() if args.crosswalk else None, args.output.resolve())
+          args.crosswalk.resolve() if args.crosswalk else None, args.output.resolve(),
+          args.district_review.resolve() if args.district_review else None)
