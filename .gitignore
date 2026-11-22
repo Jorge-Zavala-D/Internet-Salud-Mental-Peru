@@ -1,5 +1,8 @@
 # Merge with the repository's existing .gitignore, if any.
 .local/
+# Keep the local research knowledge graph and its configuration out of Git.
+graphify-out/
+.graphify*
 *.dta
 *.sav
 *.dct
