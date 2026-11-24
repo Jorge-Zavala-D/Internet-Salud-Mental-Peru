@@ -318,7 +318,9 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     quietly use "`appended'", clear
     generate byte main_wave = inrange(wave,2016,2025)
     * The released 2020 records do not distinguish individual interview modes.
+    * The retained service-support audit uses the original 2020-only marker.
     generate byte mode_review = wave == 2020
+    generate byte fieldwork_mode_review = inlist(wave, 2020, 2021)
     generate byte youth = inrange(qs23,15,29) & qs23==floor(qs23)
     generate byte age_band = .
     replace age_band = 1 if inrange(qs23,0,14) & qs23==floor(qs23)
@@ -579,7 +581,7 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     label values education_attainment hh_head_education attainment
     label values union_status union_status
     label values hh_wealth_quintile wealth_rank
-    label values main_wave mode_review youth rural positive_weight health_complete home_internet ///
+    label values main_wave mode_review fieldwork_mode_review youth rural positive_weight health_complete home_internet ///
         eligible eligible_rural_youth visit_day_released date_anomaly day_anomaly next_calendar_year ///
         fieldwork_unexpected psu_disagreement survey_design_missing district_conflict district_range_review ///
         pilot_geographic_shape native_key_valid ///
@@ -631,6 +633,7 @@ if inlist("`series'", "endes_pilot", "endes", "endes_with_2015") {
     label variable eligible_rural_youth "Outcome-eligible and rural, before linkage and mode decisions"
     label variable main_wave "In 2016–2025 survey series"
     label variable mode_review "2020 mixed-mode comparability review, individual mode unidentified"
+    label variable fieldwork_mode_review "Wave flagged for mode review (2020 or 2021)"
     label variable qsintd "Day of final health visit if released"
     label variable qsintm "Month of final health visit, released code"
     label variable qsinty "Calendar year of final health visit, released code"
