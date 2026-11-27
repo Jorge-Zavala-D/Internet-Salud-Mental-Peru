@@ -11,10 +11,11 @@ local checkout "`c(pwd)'"
 do ".local/paths.local.do"
 local run "`run_folder'"
 if "`run_folder'" != "" & !regexm("`run_folder'", "^([A-Za-z]:|/)") local run "${econ_dropbox}/`run_folder'"
+if "`series'" == "modern" & "`inputs'" == "" local inputs "${econ_dropbox}/3 Data/2 Working"
 
 * 3. User-written dependencies
 * This workflow uses only built-in Stata commands.
 
-* 4. Data preparation, then descriptive analysis for frozen replays
+* 4. Data preparation, then descriptive analysis
 do "`checkout'/1 Code/1 Data Preparation.do" "`inputs'" "`run'" "`series'"
-if inlist("`series'", "historical", "extended") do "`checkout'/1 Code/2 Data Analysis.do" "`inputs'" "`run'" "`series'"
+if inlist("`series'", "modern", "historical", "extended") do "`checkout'/1 Code/2 Data Analysis.do" "`inputs'" "`run'" "`series'"

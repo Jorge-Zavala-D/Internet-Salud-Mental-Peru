@@ -1,0 +1,25 @@
+pronatel_project,pronatel_ref_date,pronatel_ref_source,pronatel_ref_grade,pronatel_phase,workbook_date_only,reference_day,workbook_day_only,no_day,roster_localities,documented_year,workbook_only_year
+AMAZONAS,,,,,,0,0,4,4,,
+AMAZONAS,,,,base,2025-05-21,0,268,0,268,,2025
+AMAZONAS,,,,expansion,2025-05-21,0,35,0,35,,2025
+ANCASH,2026-01-01,AN_DRTC26,official_day,,,494,0,0,494,2026,
+APURIMAC,2019-06-28,REG_OSI25,regulator_date,,,285,0,0,285,2019,
+AREQUIPA,,,,,2025-11-30,0,252,0,252,,2025
+AREQUIPA,,,,,,0,0,10,10,,
+AYACUCHO,2019-07-17,REG_OSI25,regulator_date,,,350,0,0,350,2019,
+CAJAMARCA,,,,,,0,0,1094,1094,,
+CUSCO,2021-04-24,REG_OSI25,regulator_date,,,371,0,0,371,2021,
+HUANCAVELICA,2019-06-18,REG_OSI25,regulator_date,,,354,0,0,354,2019,
+HUANUCO,,,,,,0,0,349,349,,
+ICA,2023-04-01,REG_OSI25,regulator_date,,,81,0,0,81,2023,
+JUNIN,2024-03-22,REG_OSI25,regulator_date,,,353,0,0,353,2024,
+LA LIBERTAD,2026-01-01,REG_MEM25,annual_report,,,733,0,0,733,2026,
+LAMBAYEQUE,2021-01-01,REG_OSI25,regulator_date,,,360,0,0,360,2021,
+LIMA,2021-04-21,L_AD09,signed_recital,,,291,0,0,291,2021,
+MOQUEGUA,2022-07-22,REG_OSI25,regulator_date,,,66,0,0,66,2022,
+PASCO,,,,,,0,0,269,269,,
+PIURA,,,,,,0,0,463,463,,
+PUNO,,,,,,0,0,478,478,,
+SAN MARTIN,,,,,2025-10-31,0,220,0,220,,2025
+TACNA,2022-07-22,REG_OSI25,regulator_date,,,52,0,0,52,2022,
+TUMBES,,,,,,0,0,20,20,,

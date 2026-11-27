@@ -993,7 +993,7 @@ if "`series'" == "pronatel" {
 }
 
 * Frozen Stage 02 replay. Preserve the existing working and coded data contracts.
-
+if "`series'" != "modern" {
 * The historical series uses the pilot's seven rounds. The extension adds 2019 and 2023.
 if !inlist("`series'", "historical", "extended") {
     display as error "Choose historical or extended for the ENDES series."
@@ -1238,4 +1238,107 @@ foreach data in working coded {
 }
 display as result "ECONTHAKI_PREPARATION_OK `series'"
 log close preparation
+exit
+}
+
+* ENDES master file and PRONATEL roster merge
+local coded "`run'"
+local receipts "`run'"
+if "`run'" == "" {
+    local coded "${econ_dropbox}/3 Data/3 Coded"
+    local receipts "${econ_dropbox}/3 Data/0 Support docs/PRONATEL"
+}
+log using "`receipts'/endes_pronatel_merge.log", text replace name(modern_merge)
+display "Stata " c(stata_version) " revision " c(born_date) ", MP=" c(MP)
+display "Working inputs: `inputs'"
+
+tempfile anchors pronatel_lookup held_endes
+
+* The reference clock uses sourced exact days at whole-project scope.
+* The Amazonas expansion records and later venue evidence stay in the source ledgers.
+use "`inputs'/PRONATEL_coded.dta", clear
+keep if scope=="project" & event_type=="regional_operation" & source_merge==3 & ///
+    !missing(event_first,event_last) & event_first==event_last
+keep project event_first source_id evidence_grade event_id
+rename (event_first source_id evidence_grade event_id) ///
+    (pronatel_ref_date pronatel_ref_source pronatel_ref_grade pronatel_ref_event)
+quietly save "`anchors'"
+
+* Only roster snapshots can enter the one-row-per-locality lookup.
+use "`inputs'/PRONATEL_coded.dta", clear
+keep if event_type=="roster_snapshot"
+keep locality10 project roster_in_geoperu roster_in_workbook workbook_intervention ///
+    workbook_region_operation workbook_schools workbook_health_posts workbook_police workbook_cad workbook_wifi
+merge m:1 project using "`anchors'", keep(master match) nogenerate
+rename project pronatel_project
+generate str9 pronatel_phase = ""
+replace pronatel_phase = "base" if workbook_intervention=="Proyecto Regional Amazonas"
+replace pronatel_phase = "expansion" if workbook_intervention=="Proyecto Regional Amazonas - Ampliación"
+quietly save "`pronatel_lookup'"
+
+* Preserve held ENDES rows, including any printed codes, outside the locality join.
+local use_geography locality_usable==1 & !missing(locality10) & sensitivity_later_review==0
+quietly use if !(`use_geography') using "`inputs'/ENDES_coded.dta", clear
+quietly save "`held_endes'"
+
+use if `use_geography' using "`inputs'/ENDES_coded.dta", clear
+merge m:1 locality10 using "`pronatel_lookup'", keep(master match) generate(pronatel_link)
+append using "`held_endes'"
+label define pronatel_lookup_result 1 "Outside both roster snapshots" 3 "Exact roster code", replace
+label values pronatel_link pronatel_lookup_result
+label variable pronatel_link "Exact locality join result, blank for geography holds"
+label variable pronatel_project "PRONATEL regional project in the source rosters"
+label variable pronatel_phase "Project phase where the workbook expressly identifies it"
+label variable pronatel_ref_date "Documented formal project milestone day"
+label variable pronatel_ref_source "Source ID for the formal project milestone day"
+label variable pronatel_ref_grade "Evidence class for the formal project milestone day"
+label variable pronatel_ref_event "Chronology event ID for the formal project milestone day"
+
+* The final health visit is the calendar proxy for the 14-day PHQ recall.
+* Month-only records span all possible days in the observed month.
+generate int last_visit_first = cond(!missing(visit_date),visit_date,dofm(visit_month))
+generate int last_visit_last = cond(!missing(visit_date),visit_date,dofm(visit_month+1)-1)
+replace last_visit_first = . if !missing(visit_date,visit_month) & mofd(visit_date)!=visit_month
+replace last_visit_last = . if missing(last_visit_first)
+generate int recall_first = last_visit_first-14 if !missing(last_visit_first)
+generate int recall_last = last_visit_last-1 if !missing(last_visit_last)
+format last_visit_first last_visit_last recall_first recall_last pronatel_ref_date workbook_region_operation %tdCCYY-NN-DD
+label variable last_visit_first "Earliest possible day of the final health visit"
+label variable last_visit_last "Latest possible day of the final health visit"
+label variable recall_first "Earliest possible recall day, final health visit minus 14 days"
+label variable recall_last "Latest possible recall day, day before final health visit"
+
+* Assign a clock category only after checking geography, site and calendar support.
+generate byte pronatel_timing = 7 if missing(pronatel_link)
+replace pronatel_timing = 8 if !missing(pronatel_link) & service_site_review!=0
+replace pronatel_timing = 4 if pronatel_link==1 & service_site_review==0
+replace pronatel_timing = 6 if pronatel_link==3 & service_site_review==0 & missing(recall_first,recall_last)
+replace pronatel_timing = 5 if pronatel_link==3 & service_site_review==0 & ///
+    !missing(recall_first,recall_last) & missing(pronatel_ref_date)
+replace pronatel_timing = 1 if pronatel_link==3 & service_site_review==0 & ///
+    !missing(recall_first,recall_last,pronatel_ref_date) & recall_last<pronatel_ref_date
+replace pronatel_timing = 2 if pronatel_link==3 & service_site_review==0 & ///
+    !missing(recall_first,recall_last,pronatel_ref_date) & recall_first>=pronatel_ref_date
+replace pronatel_timing = 3 if pronatel_link==3 & service_site_review==0 & ///
+    !missing(recall_first,recall_last,pronatel_ref_date) & recall_first<pronatel_ref_date & recall_last>=pronatel_ref_date
+label define pronatel_clock 1 "Wholly before milestone" 2 "Wholly on or after milestone" ///
+    3 "Crosses milestone" 4 "Outside both roster snapshots" 5 "Matched, no reference milestone" ///
+    6 "Matched, missing or invalid visit bounds" 7 "Geography hold" 8 "Site hold", replace
+label values pronatel_timing pronatel_clock
+label variable pronatel_timing "Position of possible recall relative to the formal project milestone"
+
+* Workbook dates are a separate sensitivity for rows without a documented reference date.
+generate byte pronatel_workbook_timing = cond(recall_last<workbook_region_operation,1, ///
+    cond(recall_first>=workbook_region_operation,2,3)) if pronatel_timing==5 & ///
+    roster_in_workbook==1 & !missing(workbook_region_operation)
+label values pronatel_workbook_timing pronatel_clock
+label variable pronatel_workbook_timing "Sensitivity using workbook date alone where the reference is absent"
+
+char _dta[pronatel_linkage] "Exact locality10, roster snapshots only; ENDES wave hhid retained"
+char _dta[pronatel_calendar] "Formal project milestone and final-visit recall envelope; no local service assignment"
+sort wave hhid
+tabulate pronatel_timing if main_wave==1 & eligible_rural_youth==1, missing
+datasignature
+quietly save "`coded'/Data Analysis.dta", replace
+log close modern_merge
 

@@ -61,6 +61,37 @@ can have several separately sourced events for a locality and service venue.
 Read each with its intended users. The support documents record the source
 scopes and the ENDES interview-window checks.
 
+### ENDES–PRONATEL descriptive workflow
+
+After both source stages have produced their working files, run the master
+from the checkout root in Stata MCP.
+
+```stata
+do "1 Code/0 Master.do" "" "" modern
+```
+
+This reads the two existing source files from `3 Data/2 Working`, saves
+`3 Data/3 Coded/Data Analysis.dta` in project Dropbox and runs the descriptive
+exhibits. The integrated file retains one record per ENDES wave and household
+case, including 2015 and geography or site holds. The merge joins an approved
+ten-digit locality to the two PRONATEL roster snapshots. The reference clock
+uses the sourced exact regional dates in the prepared PRONATEL chronology.
+Workbook dates enter a separate sensitivity. Timing uses the possible 14-day
+recall envelope before the final health visit. The visit is the proxy for
+questionnaire administration, and the exhibits describe calendar support for
+formal milestones. Local service and interruptions enter the named-venue table
+through the prepared chronology and the 27 November public-record audit.
+
+The PDF and underlying count CSV go to `2 Output/Figures` and
+`2 Output/Numbers`. The survey support tables and named-venue table go to
+`2 Output/Tables`. Logs go to `3 Data/0 Support docs/PRONATEL`.
+For a scratch run, pass an explicit working input directory and an existing
+scratch output directory. Both stages write into that scratch directory.
+
+```stata
+do "1 Code/0 Master.do" "<directory with both source .dta files>" "<scratch output directory>" modern
+```
+
 ### Frozen Stage 02 replay
 
 Use the frozen Stage 02 input directory (`inputs-v1`), with `core/modules.csv`,

@@ -1,6 +1,198 @@
 version 16.0
 args inputs run series
 
+* Modern descriptive exhibits
+if "`series'" == "modern" {
+    local coded "`run'"
+    local figures "`run'"
+    local tables "`run'"
+    local numbers "`run'"
+    local receipts "`run'"
+    if "`run'" == "" {
+        local coded "${econ_dropbox}/3 Data/3 Coded"
+        local figures "`c(pwd)'/2 Output/Figures"
+        local tables "`c(pwd)'/2 Output/Tables"
+        local numbers "`c(pwd)'/2 Output/Numbers"
+        local receipts "${econ_dropbox}/3 Data/0 Support docs/PRONATEL"
+    }
+    local evidence "${econ_dropbox}/3 Data/0 Support docs/PRONATEL/Public records search 2026-11-27"
+    log using "`receipts'/endes_pronatel_descriptives.log", text replace name(modern_descriptives)
+    display "Integrated source: `coded'/Data Analysis.dta"
+    display "Named documentary layer: `evidence'/verified_service_and_roster_records.csv"
+    tempfile reference_dates sensitivity new_records venue_records venue_keys venue_support
+
+    * Read the same whole-project reference clock as the merge, independently of ENDES coverage.
+    use "`inputs'/PRONATEL_coded.dta", clear
+    keep if scope=="project" & event_type=="regional_operation" & source_merge==3 & ///
+        !missing(event_first,event_last) & event_first==event_last
+    keep project event_first source_id evidence_grade
+    rename (project event_first source_id evidence_grade) ///
+        (pronatel_project pronatel_ref_date pronatel_ref_source pronatel_ref_grade)
+    quietly save "`reference_dates'"
+
+    * Figure 1. Count all roster localities, whether ENDES sampled them or not.
+    use "`inputs'/PRONATEL_coded.dta", clear
+    keep if event_type=="roster_snapshot"
+    rename project pronatel_project
+    merge m:1 pronatel_project using "`reference_dates'", keep(master match) nogenerate
+    generate str9 pronatel_phase = ""
+    replace pronatel_phase = "base" if workbook_intervention=="Proyecto Regional Amazonas"
+    replace pronatel_phase = "expansion" if workbook_intervention=="Proyecto Regional Amazonas - Ampliación"
+    generate int workbook_date_only = workbook_region_operation if missing(pronatel_ref_date) & roster_in_workbook==1
+    generate byte reference_day = !missing(pronatel_ref_date)
+    generate byte workbook_day_only = missing(pronatel_ref_date) & !missing(workbook_date_only)
+    generate byte no_day = !reference_day & !workbook_day_only
+    collapse (sum) reference_day workbook_day_only no_day, ///
+        by(pronatel_project pronatel_phase pronatel_ref_date pronatel_ref_source pronatel_ref_grade workbook_date_only)
+    generate long roster_localities = reference_day+workbook_day_only+no_day
+    quietly summarize roster_localities, meanonly
+    local roster_total = r(sum)
+    generate int documented_year = year(pronatel_ref_date)
+    generate int workbook_only_year = year(workbook_date_only)
+    format pronatel_ref_date workbook_date_only %tdCCYY-NN-DD
+    export delimited using "`numbers'/pronatel_rollout_coverage.csv", datafmt replace
+
+    collapse (sum) reference_day workbook_day_only no_day ///
+        (max) documented_year workbook_only_year, by(pronatel_project)
+    generate str45 project_label = strproper(pronatel_project)
+    replace project_label = project_label+" ("+string(documented_year,"%4.0f")+")" if !missing(documented_year)
+    replace project_label = project_label+" ("+string(workbook_only_year,"%4.0f")+")" ///
+        if missing(documented_year) & !missing(workbook_only_year)
+    graph hbar (sum) reference_day workbook_day_only no_day, over(project_label, label(labsize(vsmall))) stack ///
+        scheme(s2color) graphregion(color(white) margin(l=9 r=7)) plotregion(color(white)) ///
+        bar(1, color("39 87 130")) bar(2, color("187 120 52")) bar(3, color("193 203 211")) ///
+        title("PRONATEL regional milestone coverage", size(medium)) ///
+        subtitle("All 21 projects in the union of the two rosters", size(small)) ///
+        ytitle("Distinct roster localities") ylabel(, grid labsize(small)) ///
+        legend(order(1 "Documented day" 2 "Workbook date only" 3 "No date") rows(1) size(vsmall) region(lstyle(none))) ///
+        note("GeoPerú April 2024 and the workbook received November 2026." ///
+             "Denominator = `roster_total' localities. Workbook dates are a sensitivity.", size(vsmall)) ///
+        xsize(10) ysize(8) scale(.86)
+    graph export "`figures'/pronatel_rollout_coverage.pdf", as(pdf) replace
+
+    * Table 1. Survey scope, snapshot membership and the formal milestone clock.
+    use "`coded'/Data Analysis.dta", clear
+    keep if main_wave==1 & eligible_rural_youth==1
+    generate int calendar_year = year(last_visit_first)
+    generate byte interviews = 1
+    generate str22 roster_membership = "Geography hold" if missing(pronatel_link)
+    replace roster_membership = "Outside both snapshots" if pronatel_link==1
+    replace roster_membership = "GeoPeru only" if roster_in_geoperu==1 & roster_in_workbook==0
+    replace roster_membership = "Workbook only" if roster_in_geoperu==0 & roster_in_workbook==1
+    replace roster_membership = "Both snapshots" if roster_in_geoperu==1 & roster_in_workbook==1
+    preserve
+    egen byte localities = tag(locality10 calendar_year pronatel_project pronatel_phase ///
+        roster_membership pronatel_timing) if !missing(pronatel_link), missing
+    collapse (sum) interviews localities, by(calendar_year pronatel_project pronatel_phase ///
+        roster_membership pronatel_timing pronatel_ref_date pronatel_ref_source)
+    format pronatel_ref_date %tdCCYY-NN-DD
+    export delimited using "`tables'/endes_pronatel_merge_and_milestone.csv", datafmt replace
+    restore
+
+    * These rows use identical rules for each sample. Omission uses survey wave.
+    tempname support_table
+    postfile `support_table' str24 sample long eligible_interviews geography_interviews geography_localities ///
+        exact_matches exact_localities geography_holds site_holds outside_both invalid_visit_bounds ///
+        dated_site_clear dated_site_clear_localities before on_or_after crossing no_reference_date ///
+        workbook_only_before workbook_only_on_or_after workbook_only_crossing using "`sensitivity'"
+    foreach sample in all usual usual_no_2020 usual_no_2021 usual_no_2020_2021 {
+        preserve
+        if "`sample'"!="all" keep if usual_resident==1
+        if inlist("`sample'","usual_no_2020","usual_no_2020_2021") drop if wave==2020
+        if inlist("`sample'","usual_no_2021","usual_no_2020_2021") drop if wave==2021
+        generate byte geography_ok = !missing(pronatel_link)
+        generate byte matched = pronatel_link==3
+        generate byte geography_held = pronatel_timing==7
+        generate byte site_held = pronatel_timing==8
+        generate byte outside = pronatel_link==1
+        generate byte invalid_visit = pronatel_timing==6
+        generate byte dated = inlist(pronatel_timing,1,2,3,5)
+        generate byte before = pronatel_timing==1
+        generate byte on_or_after = pronatel_timing==2
+        generate byte crossing = pronatel_timing==3
+        generate byte no_reference = pronatel_timing==5
+        generate byte wb_before = pronatel_workbook_timing==1
+        generate byte wb_on_or_after = pronatel_workbook_timing==2
+        generate byte wb_crossing = pronatel_workbook_timing==3
+        egen byte geography_sites = tag(locality10) if geography_ok
+        egen byte matched_sites = tag(locality10) if matched
+        egen byte dated_sites = tag(locality10) if dated
+        collapse (sum) interviews geography_ok geography_sites matched matched_sites geography_held site_held ///
+            outside invalid_visit dated dated_sites before on_or_after crossing no_reference wb_before wb_on_or_after wb_crossing
+        post `support_table' ("`sample'") (interviews[1]) (geography_ok[1]) (geography_sites[1]) (matched[1]) (matched_sites[1]) ///
+            (geography_held[1]) (site_held[1]) (outside[1]) (invalid_visit[1]) (dated[1]) (dated_sites[1]) ///
+            (before[1]) (on_or_after[1]) (crossing[1]) (no_reference[1]) (wb_before[1]) (wb_on_or_after[1]) (wb_crossing[1])
+        restore
+    }
+    postclose `support_table'
+    use "`sensitivity'", clear
+    export delimited using "`tables'/endes_pronatel_support_sensitivity.csv", replace
+
+    * Table 2. Compare selected documentary records to the project calendar.
+    import delimited using "`evidence'/verified_service_and_roster_records.csv", ///
+        clear varnames(1) stringcols(_all) encoding("utf-8")
+    keep if inlist(event_id,"MOQ01","MOQ05","TAC03","TAC06","SM01","LL04")
+    rename (project locality10_if_adjudicated) (pronatel_project locality10)
+    generate int event_first = daily(date_lower,"YMD")
+    generate int event_last = daily(date_upper,"YMD")
+    generate str34 evidence_layer = "27 November public-record audit"
+    keep event_id pronatel_project locality10 place venue_or_scope audience evidence_class ///
+        event_first event_last date_semantics finding remaining_gap source_url source_locator evidence_layer
+    quietly save "`new_records'"
+
+    use "`inputs'/PRONATEL_coded.dta", clear
+    keep if inlist(event_id,"AN-QUEN-OBS","J-RAC-H-OBS","LL-RAMAL-OBS","L-CHI-EXC","J-TRANS-21")
+    rename (project site_name service intended_users event_type date_precision source_note) ///
+        (pronatel_project place venue_or_scope audience evidence_class date_semantics finding)
+    generate str34 evidence_layer = "Prepared PRONATEL chronology"
+    keep event_id pronatel_project locality10 place venue_or_scope audience evidence_class ///
+        event_first event_last date_semantics finding source_url source_locator evidence_layer
+    append using "`new_records'"
+    merge m:1 pronatel_project using "`reference_dates'", keep(master match) nogenerate
+    format pronatel_ref_date event_first event_last %tdCCYY-NN-DD
+    generate str38 relation_to_reference = "No documented project day" if missing(pronatel_ref_date)
+    replace relation_to_reference = "Before formal day" if !missing(event_last,pronatel_ref_date) & event_last<pronatel_ref_date
+    replace relation_to_reference = "On or after formal day" if !missing(event_first,pronatel_ref_date) & event_first>=pronatel_ref_date
+    replace relation_to_reference = "Spans formal day" if !missing(event_first,event_last,pronatel_ref_date) & ///
+        event_first<pronatel_ref_date & event_last>=pronatel_ref_date
+    replace relation_to_reference = "By-date bound on or after formal day" if missing(event_first) & ///
+        !missing(event_last,pronatel_ref_date) & event_last>=pronatel_ref_date
+    quietly save "`venue_records'"
+
+    * Pair documentary records with exact survey codes only to check calendar support.
+    keep if !missing(locality10)
+    keep event_id locality10 event_first event_last
+    quietly save "`venue_keys'"
+    use wave main_wave eligible_rural_youth locality10 pronatel_link service_site_review recall_first recall_last ///
+        using "`coded'/Data Analysis.dta", clear
+    keep if main_wave==1 & eligible_rural_youth==1 & !missing(pronatel_link)
+    joinby locality10 using "`venue_keys'", unmatched(using)
+    generate byte exact_overlap = !missing(wave)
+    generate byte site_clear_date = exact_overlap & service_site_review==0 & !missing(recall_first,recall_last)
+    generate byte event_day_in_recall = site_clear_date & inrange(event_last,recall_first,recall_last) ///
+        if !missing(event_last) & (missing(event_first) | event_first==event_last)
+    collapse (max) exact_overlap site_clear_date event_day_in_recall, by(event_id)
+    quietly save "`venue_support'"
+
+    use "`venue_records'", clear
+    merge 1:1 event_id using "`venue_support'", keep(master match) nogenerate
+    generate str40 endes_geography = "No adjudicated code for this record" if missing(locality10)
+    replace endes_geography = "No eligible ENDES match" if exact_overlap==0
+    replace endes_geography = "Exact match, no site-clear dates" if exact_overlap==1 & site_clear_date==0
+    replace endes_geography = "Exact match, site-clear dates available" if site_clear_date==1
+    generate str44 endes_calendar = "Record day outside all recall envelopes" if site_clear_date==1 & event_day_in_recall==0
+    replace endes_calendar = "Record day can overlap a recall window" if event_day_in_recall==1
+    replace endes_calendar = "No point-date check" if missing(endes_calendar)
+    order pronatel_project place venue_or_scope audience pronatel_ref_date relation_to_reference ///
+        evidence_class event_first event_last date_semantics endes_geography endes_calendar
+    sort pronatel_project event_first event_last event_id
+    drop locality10 exact_overlap site_clear_date event_day_in_recall
+    export delimited using "`tables'/pronatel_named_venue_comparison.csv", datafmt replace
+    log close modern_descriptives
+    exit
+}
+
+* Frozen Stage 02 descriptive replay
 log using "`run'/analysis.log", text name(descriptive)
 local edition = cond(c(MP), "MP", cond(c(SE), "SE", "BE"))
 display as text "Stata/`edition' " c(stata_version) ", " c(processors) " processor(s)"
