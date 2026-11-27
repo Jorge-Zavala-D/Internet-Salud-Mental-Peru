@@ -38,9 +38,12 @@ arguments. The 2016–2025 builds use the district ledger. Only the build with
 
 ### PRONATEL roster and service chronology
 
-Use the reviewed `events.csv`, `sources.csv` and `roster_geoperu_20240416.csv`
-in project Dropbox under `3 Data/0 Support docs/PRONATEL/Chronology inputs`.
-From the checkout root, run the master in a fresh named Stata MCP session.
+Use `events.csv`, `sources.csv`, `roster_geoperu_20240416.csv` and
+`workbook_source.csv` from `3 Data/0 Support docs/PRONATEL/Chronology inputs`
+in project Dropbox. The workbook register names the original XLSX received on
+24 November 2026 and records its SHA-256. Stata reads the original `Export`
+sheet from the raw path documented in the register. From the checkout root,
+run the master in a fresh named Stata MCP session.
 
 ```stata
 do "1 Code/0 Master.do" "<full path to Chronology inputs>" "" pronatel
@@ -49,12 +52,14 @@ do "1 Code/0 Master.do" "<full path to Chronology inputs>" "" pronatel
 This replaces `3 Data/2 Working/PRONATEL_coded.dta` and refreshes the
 preparation log and event counts in `3 Data/0 Support docs/PRONATEL`.
 Pass an existing scratch directory as the second argument for verification.
-Use `event_id` as the row key. The roster subset has one row per locality.
-The chronology can have several events for a locality and service venue.
-Keep facility, service venue and intended users in view when reading the
-dates. Roster inclusion, a project-level milestone and an observed service
-day carry different meanings. The support documents record the evidence and
-the ENDES interview-window checks.
+Use `event_id` as the row key. Each locality in either roster has one
+`roster_snapshot` row. `roster_in_geoperu` and `roster_in_workbook` record
+membership in each dated source file. The `workbook_*` fields keep the native
+names, reported counts, regional project date and Excel row. A workbook-only
+row has the workbook as its source and has no site event date. The chronology
+can have several separately sourced events for a locality and service venue.
+Read each with its intended users. The support documents record the source
+scopes and the ENDES interview-window checks.
 
 ### Frozen Stage 02 replay
 

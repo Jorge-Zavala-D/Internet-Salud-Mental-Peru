@@ -836,9 +836,31 @@ if "`series'" == "pronatel" {
     display "Stata/`edition' " c(stata_version) " revision " c(born_date)
     display "PRONATEL evidence input: `inputs'"
 
-    tempfile sources roster
+    tempfile sources roster workbook_roster
     quietly import delimited using "`inputs'/sources.csv", clear varnames(1) stringcols(_all) encoding("utf-8")
     quietly save "`sources'"
+
+    * Read the later PRONATEL roster from the pinned workbook. Its date is regional.
+    quietly import delimited using "`inputs'/workbook_source.csv", clear ///
+        varnames(1) stringcols(_all) encoding("utf-8")
+    local workbook_path = source_file[1]
+    local workbook_source = source_id[1]
+    local workbook_hash = sha256[1]
+    display "Regional roster workbook: `workbook_path'"
+    display "Recorded workbook SHA-256: `workbook_hash'"
+    quietly append using "`sources'"
+    quietly save "`sources'", replace
+
+    import excel using "${econ_dropbox}/`workbook_path'", sheet("Export") cellrange(A2) allstring clear
+    rename (B C D E F G H I J K L M N) ///
+        (locality10 workbook_locality workbook_district workbook_province workbook_region ///
+        workbook_intervention workbook_status workbook_date_raw workbook_schools workbook_health_posts ///
+        workbook_police workbook_cad workbook_wifi)
+    generate int workbook_excel_row = _n + 1
+    generate int workbook_region_operation = daily(workbook_date_raw,"MDY")
+    destring workbook_schools workbook_health_posts workbook_police workbook_cad workbook_wifi, replace
+    drop A
+    quietly save "`workbook_roster'"
 
     quietly import delimited using "`inputs'/roster_geoperu_20240416.csv", clear ///
         varnames(1) stringcols(_all) encoding("utf-8")
@@ -860,6 +882,26 @@ if "`series'" == "pronatel" {
     generate str10 date_min_raw = "2024-04-16"
     generate str10 date_max_raw = "2024-04-16"
     drop py_ban_anc nom_proyec
+
+    * The two snapshots describe roster membership. Unmatched localities stay in the file.
+    merge 1:1 locality10 using "`workbook_roster'", generate(roster_merge)
+    generate byte roster_in_geoperu = inlist(roster_merge,1,3)
+    generate byte roster_in_workbook = inlist(roster_merge,2,3)
+
+    * GeoPeru remains the primary citation for its rows. The Excel row identifies the second source.
+    replace project = workbook_region if roster_merge==2
+    replace locality_name = workbook_locality if roster_merge==2
+    replace event_id = "PRWB20261124-" + locality10 if roster_merge==2
+    replace scope = "locality" if roster_merge==2
+    replace evidence_grade = "supplied_roster" if roster_merge==2
+    replace geography_status = "roster_code" if roster_merge==2
+    replace event_type = "roster_snapshot" if roster_merge==2
+    replace source_id = "`workbook_source'" if roster_merge==2
+    replace source_locator = "Export, Excel row " + strofreal(workbook_excel_row) if roster_merge==2
+    replace service = "Regional roster designation" if roster_merge==2
+    replace roster_vintage = "Received 2026-11-24" if roster_merge==2
+    drop roster_merge
+
     quietly save "`roster'"
 
     quietly import delimited using "`inputs'/events.csv", clear varnames(1) stringcols(_all) encoding("utf-8")
@@ -902,6 +944,19 @@ if "`series'" == "pronatel" {
 
     label data "PRONATEL regional roster and sourced service events"
     label variable event_id "Source-record ID, unique within this dataset"
+    label variable roster_in_geoperu "Code listed in the April 2024 GeoPeru regional roster"
+    label variable roster_in_workbook "Code listed in the PRONATEL workbook received 24 November 2026"
+    label variable workbook_excel_row "Row of the source workbook on the Export sheet"
+    label variable workbook_region_operation "Regional project date printed in the workbook"
+    label variable workbook_date_raw "Original regional workbook date cell"
+    label variable workbook_schools "School count reported in the roster workbook"
+    label variable workbook_health_posts "Health facility count reported in the roster workbook"
+    label variable workbook_police "Police station count reported in the roster workbook"
+    label variable workbook_cad "Digital access centre count reported in the roster workbook"
+    label variable workbook_wifi "Public Wi-Fi square count reported in the roster workbook"
+    format workbook_region_operation %tdCCYY-NN-DD
+    char _dta[workbook_source] "`workbook_path'"
+    char _dta[workbook_sha256] "`workbook_hash'"
     label variable verified_venue "Audited locality and service-venue identifier"
     label variable event_first "Earliest date of this event in the source"
     label variable event_last "Latest date of this event in the source"
